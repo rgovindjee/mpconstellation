@@ -31,11 +31,19 @@ class TestSimulator(unittest.TestCase):
         tf_hours = 3.25  # Final time in [hr]
         tf = tf_hours * 3600  # s
 
-        get_trajectory(Satellite(r0, v0, m0, T0), 10, tf)
-        get_trajectory(Satellite(r0, v0, m0, T0), 1, tf)
-        position_arr = get_trajectory(Satellite(r0, v0, m0, T0), .1, tf)
-        get_trajectory(Satellite(r0, v0, m0, T0), .01, tf) #Very Slow!
-
+        # Initial states are based on orbit of Hubble Space Telescope on January 19, 2016
+        # Initial position
+        r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
+        # Initial velocity
+        v0 = np.array([4.6921, 4.9848, -3.2752]) * 1000 # m/s
+        # Initial Thrust
+        T0 = np.array([0, 0, 0])  # N
+        # Initial Mass
+        m0 = 12200  # kg
+        sim = Simulator()
+        sim.get_trajectory(Satellite(r0, v0, m0, T0), 10, tf)
+        sim.get_trajectory(Satellite(r0, v0, m0, T0), 1, tf)
+        position_arr = sim.get_trajectory(Satellite(r0, v0, m0, T0), .1, tf)
         plot_orbit_2D(position_arr)
         plot_orbit_3D(position_arr)
 

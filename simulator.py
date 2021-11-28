@@ -97,7 +97,7 @@ class Simulator:
         position = np.zeros(shape=(n, 3))
         init = sat.position
         for i in range(n):
-            update_satellite_state(sat, ts)
+            self.update_satellite_state(sat, ts)
             position[i, :] = sat.position
             if np.linalg.norm(position[i, :]) < R_EARTH:
                 # If magnitude of position vector for any point is less than the earth's
