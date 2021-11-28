@@ -11,9 +11,10 @@ To run a specific test method, use for example:
 
 For a whole test suite:
 
-`python3 test_satellite`
+`python3 test_satellite.py`
 
 
 For all test suites (current working directory must be the repo directory):
 
 `python3 -m unittest`
+
