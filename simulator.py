@@ -1,19 +1,43 @@
 import numpy as np
 from scipy import integrate
+from datetime import datetime
 from constants import *
+from control import *
 from satellite import Satellite
 
 class Simulator:
-    def __init__(self):
-        self.sim_data = np.array([])  # Data produced by simulator runs
-        return
+    def __init__(self, sats=[], controller=Controller()):
+        """
+        Arguments:
+            sats: list of Satellite objects to use for simulation
+            controller = Controller object to use for simulation
+        """
+        self.sim_data = {}  # Data produced by simulator runs
+        self.sats = sats
+        self.controller = controller
+
+    def run(self, tf=10):
+        """
+        Arguments:
+            tf: rough number of orbits
+        Runs a simulation for all satellites.
+        Returns an dictionary with satellite IDs as keys and 3 x T arrays of x, y, z coordinates as values.
+        """
+        pos_dict = {}
+        for sat in self.sats:
+            u = self.controller.get_u_func()
+            curr_pos = self.get_trajectory_ODE(sat, tf, u)
+            pos_dict[sat.id] = curr_pos
+        self.sim_data = pos_dict
+        return self.sim_data
+
     @staticmethod
     def satellite_dynamics(tau, y, u, tf, constants):
         """
         Arguments:
             tau: normalized time, values from 0 to 1
             y: state vector: [position, velocity, mass] - 7 x 1
-            u: thrust function, u = u(t)
+            u: thrust function, u = u(tau). This allows for open-loop control only.
             tf: final time used for normalization
             constants: dict, containing keys MU, R_E, J2, S, G0, ISP
         Returns:
@@ -24,6 +48,7 @@ class Simulator:
         # Get position, velocity
         r = y[0:3]
         v = y[3:6]
+        # Get mass and thrust
         m = y[6]
         thrust = y[7:10]
         r_z = r[2]
@@ -37,23 +62,27 @@ class Simulator:
         # Accel from J2
         A = np.array([ [5*(r_z/r_norm)**2 - 1,0,0], [0,5*(r_z/r_norm)**2 - 1,0], [0,0,5*(r_z/r_norm)**2 - 3]])
         a_j2 = 1.5*constants['J2']*constants['MU']*constants['R_E']**2/np.linalg.norm(r)**5 * np.dot(A, r)
+        # Accel from thrust; ignore thrust value
+        # TODO(jx) fix how control inputs are processed?
+        a_u = u(tau) / (m)
         # TODO(jx): implement accel from drag
         # TODO(jx): implement accel from solar wind
-        y_dot[3:6] = a_g + a_j2
+        y_dot[3:6] = a_g + a_j2 + a_u
         # Mass ODE
         y_dot[6] = -np.linalg.norm(thrust)/(constants['G0']*constants['ISP'])
         return tf*y_dot
 
-    def get_trajectory_ODE(self, sat, tf):
+    def get_trajectory_ODE(self, sat, tf, u):
         """
         Arguments:
             sat: Satellite object
             ts: timestep in seconds
             tf: (roughly) number of orbits, i.e. tf = 1 is 1 orbit.
+            u: u(tau) takes in a normalized time tau and outputs a 3x1 thrust vector. Used for open-loop control only.
         Returns:
-            position: nx3 array of x, y, z coordinates
+            position: 3 x n array of x, y, z coordinates
         Get trajectory with ODE45, normalized dynamics.
-        This function simulates the trajectory of the satellite using the 
+        This function simulates the trajectory of a single satellite using the
         current state as the initial value.
         Designer units (pg. 20)
         """
@@ -71,16 +100,12 @@ class Simulator:
         # Normalize system parameters (pg. 21)
         const = {'MU': MU_EARTH/mu0, 'R_E': R_EARTH/r0, 'J2': J2, 'S':0, 'G0':G0/a0, 'ISP':ISP/s0}
 
-        # Arbitrary zero thrust input
-        u = lambda tau: np.array([0,0,0])
-
         # Solve IVP:
         resolution = (100*tf) + 1 # Generally, higher resolution for more orbits are needed
         times = np.linspace(0, 1, resolution)
         sol = integrate.solve_ivp(Simulator.satellite_dynamics, [0, tf], y0, args=(u, tf, const), t_eval=times, max_step=0.001)
         r = sol.y[0:3,:] # Extract positon vector
         pos = r*r0 # Re-dimensionalize position [m]
-        self.sim_data = pos
         return pos
 
     # Get trajectory with the forward euler method
@@ -91,7 +116,7 @@ class Simulator:
             ts: timestep in seconds
             tf: final time in seconds
         Returns:
-            position: nx3 array of x, y, z coordinates
+            position: 3 x n array of x, y, z coordinates
         """
         n = int(tf / ts)
         position = np.zeros(shape=(n, 3))
@@ -107,7 +132,6 @@ class Simulator:
         final = sat.position
         print(f'Error with ts={ts}')
         print(np.linalg.norm(final) - np.linalg.norm(init))
-        self.sim_data = position
         return position
 
     # Forward Euler time-step method
@@ -129,8 +153,10 @@ class Simulator:
         sat.velocity = velocity_next
         sat.mass = mass_next
 
-    def save_to_csv(self):
+    def save_to_csv(self, suffix=""):
         """
         Export trajectory to CSV for visualization in MATLAB
         """
-        np.savetxt("trajectory.csv", self.sim_data.T, delimiter=",")
+        date = datetime.today().strftime('%Y-%m-%d-%H-%M-%S')
+        for sat in self.sats:
+            np.savetxt(f"trajectory_{date}_{sat.id}{suffix}.csv", self.sim_data[sat.id].T, delimiter=",")

@@ -1,11 +1,15 @@
 import numpy as np
+import uuid
 
 class Satellite:
     """
-    A satellite object with relevant state variables: position, velocity, mass, 
+    A satellite object with relevant state variables: position, velocity, mass,
     and thrust
     """
-    def __init__(self, position, velocity, mass, thrust):
+    def __init__(self, position=np.array([0., 0., 0.]),
+                       velocity=np.array([0., 0., 0.]),
+                       mass=0.,
+                       thrust=np.array([0., 0., 0.])):
         """
         Arguments:
             position: 3 x 1 array (m)
@@ -20,10 +24,11 @@ class Satellite:
         self.velocity = velocity
         self.mass = mass
         self.thrust = thrust
+        self.id = uuid.uuid4().int  # Assign a unique numeric identifier to the satellite
 
     def __str__(self):
         return (
-            f'Satellite with mass {self.mass}:\n'
+            f'Satellite {hex(self.id)} with mass {self.mass}:\n'
             f'position: {self.position}\n'
             f'velocity: {self.velocity}'
         )
