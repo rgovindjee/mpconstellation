@@ -32,6 +32,20 @@ class Simulator:
         return self.sim_data
 
     @staticmethod
+    def get_atmo_density(r, r0):
+        """
+        Arguments:
+            r: current normalized position vector
+            r0: initial position norm
+        Calculates atmospheric density based on current altitude and is 
+        only accurate between 480-520km because of linearization. 
+        Based on Harris-Priester Atmospheric Model
+        """
+        altitude = np.linalg.norm(r * r0) - R_EARTH
+        # return 8E38 * altitude **-6.828 # power model for 400-600km but too slow
+        return -1E-05 * altitude + 6.4851 # linear model for 480-520km
+
+    @staticmethod
     def satellite_dynamics(tau, y, u, tf, constants):
         """
         Arguments:
@@ -65,9 +79,10 @@ class Simulator:
         # Accel from thrust; ignore thrust value
         # TODO(jx) fix how control inputs are processed?
         a_u = u(tau) / (m)
-        # TODO(jx): implement accel from drag
+        # Accel from atmospheric drag
+        a_d = -1/2 * C_D * SA * (1 / m) * Simulator.get_atmo_density(r, constants['R0']) * np.linalg.norm(v) * v / constants['A_D0']
         # TODO(jx): implement accel from solar wind
-        y_dot[3:6] = a_g + a_j2 + a_u
+        y_dot[3:6] = a_g + a_j2 + a_u + a_d
         # Mass ODE
         y_dot[6] = -np.linalg.norm(thrust)/(constants['G0']*constants['ISP'])
         return tf*y_dot
@@ -97,8 +112,11 @@ class Simulator:
         # Normalized state vector (pg. 21)
         y0 = np.concatenate([sat.position/r0, sat.velocity/v0, np.array([sat.mass/m0])])
 
+        # Initial Acceleration from Drag
+        a_d0 = -1/2 * C_D * SA * (1 / m0) * Simulator.get_atmo_density(sat.position/r0, r0) * np.linalg.norm(sat.velocity) * sat.velocity
+
         # Normalize system parameters (pg. 21)
-        const = {'MU': MU_EARTH/mu0, 'R_E': R_EARTH/r0, 'J2': J2, 'S':0, 'G0':G0/a0, 'ISP':ISP/s0}
+        const = {'MU': MU_EARTH/mu0, 'R_E': R_EARTH/r0, 'J2': J2, 'S':0, 'G0':G0/a0, 'ISP':ISP/s0, 'R0': r0, 'A_D0': np.linalg.norm(a_d0)}
 
         # Solve IVP:
         resolution = (100*tf) + 1 # Generally, higher resolution for more orbits are needed
