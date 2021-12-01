@@ -37,13 +37,18 @@ class Simulator:
         Arguments:
             r: current normalized position vector
             r0: initial position norm
+        Returns: 
+            Atmospheric density at given altitude in kg/m^3
         Calculates atmospheric density based on current altitude and is 
         only accurate between 480-520km because of linearization. 
-        Based on Harris-Priester Atmospheric Model
+        Based on tabulated Harris-Priester Atmospheric Density Model found
+        on page 91 of Satellite Orbits by Gill and Montenbruck
         """
         altitude = np.linalg.norm(r * r0) - R_EARTH
-        # return 8E38 * altitude **-6.828 # power model for 400-600km but too slow
-        return -1E-05 * altitude + 6.4851 # linear model for 480-520km
+        # return 8E26 * altitude**-6.828 # power model for 400-600km but too slow
+        # return -1E-17 * altitude**6E-12 # linear model for 480-520km - also slows down solver slightly 
+        return 9.983E-13 # fixed density for 500km
+
 
     @staticmethod
     def satellite_dynamics(tau, y, u, tf, constants):
@@ -80,7 +85,7 @@ class Simulator:
         # TODO(jx) fix how control inputs are processed?
         a_u = u(tau) / (m)
         # Accel from atmospheric drag
-        a_d = -1/2 * C_D * SA * (1 / m) * Simulator.get_atmo_density(r, constants['R0']) * np.linalg.norm(v) * v / constants['A_D0']
+        a_d = -1/2 * C_D * constants['S'] * (1 / m) * (Simulator.get_atmo_density(r, constants['R0']) / constants['RHO']) * np.linalg.norm(v) * v
         # TODO(jx): implement accel from solar wind
         y_dot[3:6] = a_g + a_j2 + a_u + a_d
         # Mass ODE
@@ -112,11 +117,8 @@ class Simulator:
         # Normalized state vector (pg. 21)
         y0 = np.concatenate([sat.position/r0, sat.velocity/v0, np.array([sat.mass/m0])])
 
-        # Initial Acceleration from Drag
-        a_d0 = -1/2 * C_D * SA * (1 / m0) * Simulator.get_atmo_density(sat.position/r0, r0) * np.linalg.norm(sat.velocity) * sat.velocity
-
         # Normalize system parameters (pg. 21)
-        const = {'MU': MU_EARTH/mu0, 'R_E': R_EARTH/r0, 'J2': J2, 'S':0, 'G0':G0/a0, 'ISP':ISP/s0, 'R0': r0, 'A_D0': np.linalg.norm(a_d0)}
+        const = {'MU': MU_EARTH/mu0, 'R_E': R_EARTH/r0, 'J2': J2, 'S':SA/r0**2, 'G0':G0/a0, 'ISP':ISP/s0, 'R0': r0, 'RHO': m0/r0**3}
 
         # Solve IVP:
         resolution = (100*tf) + 1 # Generally, higher resolution for more orbits are needed
