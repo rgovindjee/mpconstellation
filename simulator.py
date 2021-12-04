@@ -104,8 +104,8 @@ class Simulator:
         Get trajectory with ODE45, normalized dynamics.
         This function simulates the trajectory of a single satellite using the
         current state as the initial value.
-        Designer units (pg. 20)
         """
+        # Designer units (pg. 20)
         r0  = np.linalg.norm(sat.position)
         s0 = 2*np.pi*np.sqrt(r0**3/MU_EARTH)
         v0 = r0/s0
@@ -121,14 +121,13 @@ class Simulator:
         const = {'MU': MU_EARTH/mu0, 'R_E': R_EARTH/r0, 'J2': J2, 'S':SA/r0**2, 'G0':G0/a0, 'ISP':ISP/s0, 'R0': r0, 'RHO': m0/r0**3}
 
         # Solve IVP:
-        resolution = (100*tf) + 1 # Generally, higher resolution for more orbits are needed
-        times = np.linspace(0, 1, resolution)
-        sol = integrate.solve_ivp(Simulator.satellite_dynamics, [0, tf], y0, args=(u, tf, const), t_eval=times, max_step=0.001)
+        sample_times = np.linspace(0, tf, 1001) # Increase the number of samples as needed
+        max_time_step = 0.001 # Adjust as needed for ODE accuracy
+        sol = integrate.solve_ivp(Simulator.satellite_dynamics, [0, tf], y0, args=(u, tf, const), t_eval=sample_times, max_step=max_time_step)
         r = sol.y[0:3,:] # Extract positon vector
         pos = r*r0 # Re-dimensionalize position [m]
         return pos
 
-    # Get trajectory with the forward euler method
     def get_trajectory(self, sat, ts, tf):
         """
         Arguments:
@@ -137,6 +136,7 @@ class Simulator:
             tf: final time in seconds
         Returns:
             position: 3 x n array of x, y, z coordinates
+        Gets satellite trajectory with the forward Euler method
         """
         n = int(tf / ts)
         position = np.zeros(shape=(n, 3))
