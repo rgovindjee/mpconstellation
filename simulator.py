@@ -118,12 +118,12 @@ class Simulator:
         y0 = np.concatenate([sat.position/r0, sat.velocity/v0, np.array([sat.mass/m0])])
 
         # Normalize system parameters (pg. 21)
-        const = Constants(MU=MU_EARTH/mu0, R_E=R_EARTH/r0, J2=J2, G0=G0/a0, ISP=ISP/s0, SA=SA/r0**2, R0=r0, RHO=m0/r0**3)
+        const = Constants(MU=MU_EARTH/mu0, R_E=R_EARTH/r0, J2=J2, G0=G0/a0, ISP=ISP/s0, S=S/r0**2, R0=r0, RHO=m0/r0**3)
         
         # Solve IVP:
-        sample_times = np.linspace(0, tf, 1001) # Increase the number of samples as needed
+        sample_times = np.linspace(0, 1, 101) # Increase the number of samples as needed
         max_time_step = 0.001 # Adjust as needed for ODE accuracy
-        sol = integrate.solve_ivp(Simulator.satellite_dynamics, [0, tf], y0, args=(u, tf, const), t_eval=sample_times, max_step=max_time_step)
+        sol = integrate.solve_ivp(Simulator.satellite_dynamics, [0, 1], y0, args=(u, tf, const), t_eval=sample_times, max_step=max_time_step)
         r = sol.y[0:3,:] # Extract positon vector
         pos = r*r0 # Re-dimensionalize position [m]
         return pos
