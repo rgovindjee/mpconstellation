@@ -5,4 +5,16 @@ J2 = 1.08262668E-3 # J2 constant for earth
 G0 = 9.80665  # m/s2
 ISP = 500  # s
 C_D = 2.5 # satellite C_Ds generally range from 2.0 (for a spherical body) to 3.0
-SA = 55.44 # m^2 -> rough area of Hubble Space Telescope, sourced from Wikipedia
+S = 55.44 # m^2 -> rough area of Hubble Space Telescope, sourced from Wikipedia
+
+
+class Constants:
+    def __init__(self, MU, R_E, J2, G0, ISP, S, R0, RHO):
+        self.MU = MU
+        self.R_E = R_E
+        self.J2 = J2
+        self.G0 = G0
+        self.ISP = ISP
+        self.S = S
+        self.R0 = R0
+        self.RHO = RHO

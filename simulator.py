@@ -51,14 +51,14 @@ class Simulator:
 
 
     @staticmethod
-    def satellite_dynamics(tau, y, u, tf, constants):
+    def satellite_dynamics(tau, y, u, tf, const):
         """
         Arguments:
             tau: normalized time, values from 0 to 1
             y: state vector: [position, velocity, mass] - 7 x 1
             u: thrust function, u = u(tau). This allows for open-loop control only.
             tf: final time used for normalization
-            constants: dict, containing keys MU, R_E, J2, S, G0, ISP
+            const: Constants class containing parameters MU, R_E, J2, S, G0, ISP
         Returns:
             difference to update state vector
         Dynamics function of the form y_dot = f(tau, y, params)
@@ -77,19 +77,19 @@ class Simulator:
         y_dot[0:3] = v # r_dot = v
         # Velocity ODE
         # Accel from gravity
-        a_g = -constants['MU']/(r_norm)**3 * r
+        a_g = -const.MU/(r_norm)**3 * r
         # Accel from J2
         A = np.array([ [5*(r_z/r_norm)**2 - 1,0,0], [0,5*(r_z/r_norm)**2 - 1,0], [0,0,5*(r_z/r_norm)**2 - 3]])
-        a_j2 = 1.5*constants['J2']*constants['MU']*constants['R_E']**2/np.linalg.norm(r)**5 * np.dot(A, r)
+        a_j2 = 1.5*const.J2*const.MU*const.R_E**2/np.linalg.norm(r)**5 * np.dot(A, r)
         # Accel from thrust; ignore thrust value
         # TODO(jx) fix how control inputs are processed?
         a_u = u(tau) / (m)
         # Accel from atmospheric drag
-        a_d = -1/2 * C_D * constants['S'] * (1 / m) * (Simulator.get_atmo_density(r, constants['R0']) / constants['RHO']) * np.linalg.norm(v) * v
+        a_d = -1/2 * C_D * const.S * (1 / m) * (Simulator.get_atmo_density(r, const.R0)/const.RHO) * np.linalg.norm(v) * v
         # TODO(jx): implement accel from solar wind
         y_dot[3:6] = a_g + a_j2 + a_u + a_d
         # Mass ODE
-        y_dot[6] = -np.linalg.norm(thrust)/(constants['G0']*constants['ISP'])
+        y_dot[6] = -np.linalg.norm(thrust)/(const.G0*const.ISP)
         return tf*y_dot
 
     def get_trajectory_ODE(self, sat, tf, u):
@@ -118,12 +118,12 @@ class Simulator:
         y0 = np.concatenate([sat.position/r0, sat.velocity/v0, np.array([sat.mass/m0])])
 
         # Normalize system parameters (pg. 21)
-        const = {'MU': MU_EARTH/mu0, 'R_E': R_EARTH/r0, 'J2': J2, 'S':SA/r0**2, 'G0':G0/a0, 'ISP':ISP/s0, 'R0': r0, 'RHO': m0/r0**3}
-
+        const = Constants(MU=MU_EARTH/mu0, R_E=R_EARTH/r0, J2=J2, G0=G0/a0, ISP=ISP/s0, S=S/r0**2, R0=r0, RHO=m0/r0**3)
+        
         # Solve IVP:
-        sample_times = np.linspace(0, tf, 1001) # Increase the number of samples as needed
+        sample_times = np.linspace(0, 1, 101) # Increase the number of samples as needed
         max_time_step = 0.001 # Adjust as needed for ODE accuracy
-        sol = integrate.solve_ivp(Simulator.satellite_dynamics, [0, tf], y0, args=(u, tf, const), t_eval=sample_times, max_step=max_time_step)
+        sol = integrate.solve_ivp(Simulator.satellite_dynamics, [0, 1], y0, args=(u, tf, const), t_eval=sample_times, max_step=max_time_step)
         r = sol.y[0:3,:] # Extract positon vector
         pos = r*r0 # Re-dimensionalize position [m]
         return pos
