@@ -1,39 +1,39 @@
 import numpy as np
 from scipy import integrate
+from simulator import Simulator
+
+# Global variables that affect dynamics
+include_drag = False
+include_J2 = False
+rho_func = Simulator.get_atmo_density
+drho_func = None
 
 
-def linearize(f, x, u, tf, rho_func, drho_func, const, use_J2=False, use_drag=False):
+def A_func(f, x, u, tf, const):
     """
-    Linearizes satellite dynamics about reference x and reference u
-    gives A, B, Sigma, and xi (pg 22, pg 118)
-    
+    Linearize satellite dynamics about reference x and reference u
+    gives A (pg 22, pg 118)
+
     Args:
         f: Satellite dynamics function of the form dx = f(x,u)
         x: 7 vector, reference satellite states [rx, ry, rz, vx, vy, vz, mass]. ECI
         u: 3 vector, reference thrust [Tx, Ty, Tz]. ECI
         tf: scalar, refrence tf
-        rho_func: Function to compute atmospheric density from r
-        drho_func: Function to compute partial derivative of density w.r.t to r
         const: Constants object, with variables MU, R_E, J2, S, G0, ISP, CD
-        use_J2: Boolean, determines if J2 is modeled. Default false.
-        use_drag: Boolean, determines if drag is modeled. Default false.
-    
+
     Returns:
         A: 7 x 7 matrix
-        B: 7 x 3 matrix
-        Sigma: 7 vector
-        xi: 7 vector
     """
     # Extract position, velocity, mass from state vector
-    r = np.vstack(x[0:3]) # 2D column vector, not 1D vector
+    r = np.vstack(x[0:3])  # 2D column vector, not 1D vector
     rx = x[0]
     ry = x[1]
     rz = x[2]
     r_norm = np.linalg.norm(r)
-    v = np.vstack(x[3:6]) # 2D column vector, not 1D vector
+    v = np.vstack(x[3:6])  # 2D column vector, not 1D vector
     v_norm = np.linalg.norm(v)
     m = x[6]
-    T = np.vstack(u) # 2D column vector, not 1D vector
+    T = np.vstack(u)  # 2D column vector, not 1D vector
     # Get atmospheric densities
     rho = rho_func(x[0:3])
     drho = drho_func(x[0:3])
@@ -42,51 +42,142 @@ def linearize(f, x, u, tf, rho_func, drho_func, const, use_J2=False, use_drag=Fa
     Dr_ag = (-const.MU/(r_norm**3)*np.eye(3)
              + 3*const.MU/(r_norm**5)*np.dot(r, r.T))
     # Partial derivative of a_J2 with repspect to position
-    if use_J2:
+    if include_J2:
         kJ2 = 1.5*const.J2*const.MU*const.R_E**2
         rz_norm_sq = (rz/r_norm)**2
         GJ2 = np.diag([5*rz_norm_sq-1, 5*rz_norm_sq-1, 5*rz_norm_sq-3])
         ddr = (5*(rz**2)*(-2*(r.T/(r_norm**4)))
-                + (5/(r_norm**2))*np.array([[0, 0, 2*rz]]))
+               + (5/(r_norm**2))*np.array([[0, 0, 2*rz]]))
         Dr_aJ2 = (np.matmul(kJ2*GJ2*r, -5*r.T/(r_norm**7))
-                + kJ2/(r_norm**5) 
-                * np.vstack([rx*ddr, ry*ddr, rz*ddr])
-                + kJ2/(r_norm**5) * GJ2 * np.eye(3))
+                  + kJ2/(r_norm**5)
+                  * np.vstack([rx*ddr, ry*ddr, rz*ddr])
+                  + kJ2/(r_norm**5) * GJ2 * np.eye(3))
     else:
-        Dr_aJ2 = np.zeros((3,3))
+        Dr_aJ2 = np.zeros((3, 3))
     # Partial derivative of a_D with respect to position, velocity, mass
-    if use_drag:
+    if include_drag:
         Dr_aD = np.matmul(-(const.CD*const.S/(2*m))*v_norm*v,
-                        drho * r.T/r_norm)
+                          drho * r.T/r_norm)
         Dv_aD = -((rho*const.CD*const.S)/(2*m))*(v_norm*np.eye(3)
-                + (1/(v_norm))*np.matmul(v, v.T))
+                                                 + (1/(v_norm))*np.matmul(v, v.T))
         Dm_aD = ((rho*const.CD*const.S)/(2*m**2))*v_norm*v
     else:
-        Dr_aD = np.zeros((3,3))
-        Dv_aD = np.zeros((3,3))
-        Dm_aD = np.zeros((3,1))
-    # Partial derivative of a_T with respect to mass, thrust
+        Dr_aD = np.zeros((3, 3))
+        Dv_aD = np.zeros((3, 3))
+        Dm_aD = np.zeros((3, 1))
+    # Partial derivative of a_T with respect to mass
     Dm_aT = -T/(m**2)
-    DT_aT = (1/m)*np.eye(3)
-
     # Build Dxf
     Dxf = np.vstack([np.hstack([np.zeros((3, 3)), np.eye(3), np.zeros((3, 1))]),
                      np.hstack([Dr_ag + Dr_aJ2 + Dr_aD, Dv_aD, Dm_aD + Dm_aT]),
                      np.zeros((1, 7))])
 
+    # Calculate and output A
+    A = tf*Dxf
+    return A
+
+
+def B_func(f, x, u, tf, const):
+    """
+    Linearize satellite dynamics about reference x and reference u
+    gives B (pg 22, pg 118)
+
+    Args:
+        f: Satellite dynamics function of the form dx = f(x,u)
+        x: 7 vector, reference satellite states [rx, ry, rz, vx, vy, vz, mass]. ECI
+        u: 3 vector, reference thrust [Tx, Ty, Tz]. ECI
+        tf: scalar, refrence tf
+        const: Constants object, with variables MU, R_E, J2, S, G0, ISP, CD
+
+    Returns:
+        B: 7 x 3 matrix
+    """
+    # Extract mass from state vector
+    m = x[6]
+    T = np.vstack(u)  # 2D column vector, not 1D vector
+    # Partial derivative of a_T with respect to thrust
+    DT_aT = (1/m)*np.eye(3)
     # Build Duf
     DT_fm = -(T.T)/(const.G0*const.ISP*np.linalg.norm(T))
     Duf = np.vstack([np.zeros((3, 3)), DT_aT, DT_fm])
-
-    # Calculate and output A, B, Sigma, xi
-    A = tf*Dxf
+    # Calculate and output B
     B = tf*Duf
-    Sigma = f(x, u)
+    return B
+
+
+def xi_func(f, x, u, tf, const):
+    """
+    Linearize satellite dynamics about reference x and reference u, gives xi
+
+    Args:
+        f: Satellite dynamics function of the form dx = f(x,u)
+        x: 7 vector, reference satellite states [rx, ry, rz, vx, vy, vz, mass]. ECI
+        u: 3 vector, reference thrust [Tx, Ty, Tz]. ECI
+        tf: scalar, refrence tf
+        const: Constants object, with variables MU, R_E, J2, S, G0, ISP, CD
+
+    Returns:
+        xi: 7 vector
+    """
+    # Compute A and B matrices
+    A = A_func(f, x, u, tf, const)
+    B = B_func(f, x, u, tf, const)
+    # Compute xi (pg 22)
     xi = -(np.dot(A, x) + np.dot(B, u))
-    return A, B, Sigma, xi
+    return xi
 
 
-def discretize(f, x, u, tf, K, rho_func, drho_func, const):
+def Sigma_func(f, x, u, tf, const):
+    """
+    Linearize satellite dynamics about reference x and reference u, gives Sigma
+
+    Args:
+        f: Satellite dynamics function of the form dx = f(x,u)
+        x: 7 vector, reference satellite states [rx, ry, rz, vx, vy, vz, mass]. ECI
+        u: 3 vector, reference thrust [Tx, Ty, Tz]. ECI
+        tf: scalar, refrence tf
+        const: Constants object, with variables MU, R_E, J2, S, G0, ISP, CD
+
+    Returns:
+        Sigma: 7 vector
+    """
+    # Compute Sigma (pg 22)
+    Sigma = f(x, u)
+    return Sigma
+
+
+def dPhi(tau, y, f, u_func, tf, const):
+    """
+    Matrix differential equation for the state transition matrix Phi
+
+    Args:
+        tau: Current time tau
+        y: Diff eq. vector, size 56. First 49 elements for the individual
+           entries in Phi. Remaining 7 elements is the state vector x
+        f: Full nonlinear dynamics function for the satellite
+        u_func: Function to calculate u from tau
+        tf: Reference final time, used in scaling
+        const: Constants object, with variables MU, R_E, J2, S, G0, ISP, CD
+    """
+    # y is the combine state vector of phi and x of size (49+7,0)
+    # Calculate u with ufunc
+    u = u_func(tau)
+    # Extract Phi and x
+    Phi = np.reshape(y[0:49], (7, 7))
+    x = y[49:56]
+    # Calculate A
+    A = A_func(f, x, u, tf, const)
+    # Update new Phi and x
+    Phi_dot = A @ Phi
+    x_dot = f(x, u)
+    # Flatten phi and store back into new vector
+    y_dot = np.concatenate([Phi_dot.flatten(), x_dot])
+    return y_dot
+
+# Discretize
+
+
+def discretize(f, x, u, tf, K, rho_func, drho_func, use_drag, use_J2, const):
     """
     Discretizes and linearizes satellite dynamics
     with K temporal nodes from tau = [0, 1]
@@ -106,21 +197,39 @@ def discretize(f, x, u, tf, K, rho_func, drho_func, const):
 
     """
     tau = np.linspace(0, 1, K)
-    dtau = 1/(K-1)
+    A_k = []
+    B_kp = []
+    B_kn = []
+    Sigma_k = []
+    xi_k = []
 
+    # Ideally make the for loop below parallelized
     for k in range(0, K-1):
-        tau_k = tau[k]
-        tau_kp1 = tau[k+1]
-        xk = x[:,k]
-        uk = u[:,k]
-        ukp1 = u[:,k+1]
+        # Extract values
+        tau_k = tau[k]  # Left bound of temporal node
+        tau_kp1 = tau[k+1]  # Right bound of temporal node
+        tau_points = np.linspace(tau_k, tau_kp1, 101)  # Used for intergration
+        x_k = x[:, k]  # Get reference state for current node
+        u_k = u[:, k]  # Get reference inputs for current node
+        u_kp1 = u[:, k+1]
+
+        # Define first order hold interpolation function for u
         def u_func(tau):
             lambda_kn = (tau_kp1 - tau)/(tau_kp1 - tau_k)
             lambda_kp = (tau - tau_k)/(tau_kp1 - tau_k)
-            return lambda_kn*uk + lambda_kp*ukp1
-        sol = integrate.solve_ivp(f, [0, 1],)
-        pass
-    return None
-        
+            return lambda_kn*u_k + lambda_kp*u_kp1
 
-# Helper functions
+        # Solve for the state transition matrix Phi, evaluated at tau_points
+        # Define initial value for integrating
+        y0 = np.concatenate([np.eye(7).flatten(), x_k])
+        # Numerically integrate to solve for the state transition matrix Phi
+        sol = integrate.solve_ivp(dPhi, [tau_k, tau_kp1], y0,
+                                  args=(f, u_func, tf, const),
+                                  max_step=1e-4, t_eval=tau_points)
+        # Extract final phi to get equation Ak = phi(k+1)
+        Phi_kp1 = np.reshape(sol.y[0:49, -1], (7, 7))
+        x_series = sol.y[49:56, :]
+        A_k.append(Phi_kp1)
+        # Numerically integrate for Bk-, Bk+, Sigma, xi
+
+    return A_k, B_kp, B_kn, Sigma_k, xi_k
