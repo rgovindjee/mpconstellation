@@ -77,13 +77,12 @@ def A_func(f, x, u, tf, const):
     return A
 
 
-def B_func(f, x, u, tf, const):
+def B_func(x, u, tf, const):
     """
     Linearize satellite dynamics about reference x and reference u
     gives B (pg 22, pg 118)
 
     Args:
-        f: Satellite dynamics function of the form dx = f(x,u)
         x: 7 vector, reference satellite states [rx, ry, rz, vx, vy, vz, mass]. ECI
         u: 3 vector, reference thrust [Tx, Ty, Tz]. ECI
         tf: scalar, refrence tf
@@ -121,13 +120,13 @@ def xi_func(f, x, u, tf, const):
     """
     # Compute A and B matrices
     A = A_func(f, x, u, tf, const)
-    B = B_func(f, x, u, tf, const)
+    B = B_func(x, u, tf, const)
     # Compute xi (pg 22)
     xi = -(np.dot(A, x) + np.dot(B, u))
     return xi
 
 
-def Sigma_func(f, x, u, tf, const):
+def Sigma_func(f, x, u):
     """
     Linearize satellite dynamics about reference x and reference u, gives Sigma
 
@@ -135,8 +134,6 @@ def Sigma_func(f, x, u, tf, const):
         f: Satellite dynamics function of the form dx = f(x,u)
         x: 7 vector, reference satellite states [rx, ry, rz, vx, vy, vz, mass]. ECI
         u: 3 vector, reference thrust [Tx, Ty, Tz]. ECI
-        tf: scalar, refrence tf
-        const: Constants object, with variables MU, R_E, J2, S, G0, ISP, CD
 
     Returns:
         Sigma: 7 vector
@@ -174,10 +171,28 @@ def dPhi(tau, y, f, u_func, tf, const):
     y_dot = np.concatenate([Phi_dot.flatten(), x_dot])
     return y_dot
 
-# Discretize
+def u_FOH(tau, u):
+    """
+    First order hold interpolation of a signal u
+
+    Args:
+        tau: Current time tau
+        u: n x K matrix of discrete inputs
+    
+    Returns:
+        Interpolated u at time tau, u(tau)
+    """
+    K = u.size
+    dtau = 1/(K-1)
+    k = tau // dtau
+    tau_k = (k - 1)/(K-1)
+    tau_kp1 = (k)/(K-1)
+    lambda_kn = (tau_kp1 - tau)/(tau_kp1 - tau_k)
+    lambda_kp = (tau - tau_k)/(tau_kp1 - tau_k)
+    return lambda_kn*u[k] + lambda_kp*u[k+1]
 
 
-def discretize(f, x, u, tf, K, rho_func, drho_func, use_drag, use_J2, const):
+def discretize(f, x, u, tf, K, const):
     """
     Discretizes and linearizes satellite dynamics
     with K temporal nodes from tau = [0, 1]
@@ -203,6 +218,8 @@ def discretize(f, x, u, tf, K, rho_func, drho_func, use_drag, use_J2, const):
     Sigma_k = []
     xi_k = []
 
+    u_func = lambda tau: u_FOH(tau, u)
+
     # Ideally make the for loop below parallelized
     for k in range(0, K-1):
         # Extract values
@@ -210,14 +227,6 @@ def discretize(f, x, u, tf, K, rho_func, drho_func, use_drag, use_J2, const):
         tau_kp1 = tau[k+1]  # Right bound of temporal node
         tau_points = np.linspace(tau_k, tau_kp1, 101)  # Used for intergration
         x_k = x[:, k]  # Get reference state for current node
-        u_k = u[:, k]  # Get reference inputs for current node
-        u_kp1 = u[:, k+1]
-
-        # Define first order hold interpolation function for u
-        def u_func(tau):
-            lambda_kn = (tau_kp1 - tau)/(tau_kp1 - tau_k)
-            lambda_kp = (tau - tau_k)/(tau_kp1 - tau_k)
-            return lambda_kn*u_k + lambda_kp*u_kp1
 
         # Solve for the state transition matrix Phi, evaluated at tau_points
         # Define initial value for integrating
@@ -226,10 +235,31 @@ def discretize(f, x, u, tf, K, rho_func, drho_func, use_drag, use_J2, const):
         sol = integrate.solve_ivp(dPhi, [tau_k, tau_kp1], y0,
                                   args=(f, u_func, tf, const),
                                   max_step=1e-4, t_eval=tau_points)
-        # Extract final phi to get equation Ak = phi(k+1)
+        # Extract final phi to get equation A_k = Phi(k+1)
         Phi_kp1 = np.reshape(sol.y[0:49, -1], (7, 7))
-        x_series = sol.y[49:56, :]
         A_k.append(Phi_kp1)
+        
         # Numerically integrate for Bk-, Bk+, Sigma, xi
+        Phi_series = np.reshape(sol.y[0:49,:], (tau_points.size, 7,7))
+        x_series = sol.y[49:56, :]
+        B_series = np.zeros((tau_points.size, 7,3))
+        Sigma_series = np.zeros((7,tau_points.size))
+        xi_series = np.zeros((7, tau_points.size))
+        lambda_kn = (tau_kp1 - tau_points)/(tau_kp1 - tau_k)
+        lambda_kp = (tau_points - tau_k)/(tau_kp1 - tau_k)
+        for i, t in enumerate(tau_points):
+            B_series[i,:,:] = B_func(x_series[:,i],u_func(t),tf,const)
+            Sigma_series[:,i] = Sigma_func(f, x_series[:,i], u_func(t))
+            xi_series[:,i] = xi_func(f, x_series[:,i], u_func(t),tf, const)
+
+        Phi_inv = np.linalg.inv(Phi_series)
+        Bn_integrand = Phi_inv @ (B_series * lambda_kn[:,None,None])
+        Bp_integrand = Phi_inv @ (B_series * lambda_kp[:,None,None])
+        Sigma_integrand = np.column_stack([Phi_inv[i,:,:] @ Sigma_series[:,i] for i in range(0,tau_points.size)])
+        xi_integrand = np.column_stack([Phi_inv[i,:,:] @ xi_series[:,i] for i in range(0,tau_points.size)])
+        B_kp.append(Phi_kp1 @ np.trapz(y = Bp_integrand, x = tau_points, axis = 0))
+        B_kn.append(Phi_kp1 @ np.trapz(y = Bn_integrand, x = tau_points, axis = 0))
+        Sigma_k.append(Phi_kp1 @ np.trapz(y = Sigma_integrand, x = tau_points, axis = 1))
+        xi_k.append(Phi_kp1 @ np.trapz(y = xi_integrand, x = tau_points, axis = 1))
 
     return A_k, B_kp, B_kn, Sigma_k, xi_k
