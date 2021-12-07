@@ -5,7 +5,9 @@ from simulator import Simulator
 # Global variables that affect dynamics
 include_drag = False
 include_J2 = False
-rho_func = Simulator.get_atmo_density
+
+# TODO: Chase to look at rho_func and drho_func
+rho_func = Simulator.get_atmo_density # Not necessarily the right function,
 drho_func = None
 
 
@@ -166,6 +168,7 @@ def dPhi(tau, y, f, u_func, tf, const):
     A = A_func(f, x, u, tf, const)
     # Update new Phi and x
     Phi_dot = A @ Phi
+    # TODO: Investigate if tf is in f -> format f
     x_dot = f(x, u)
     # Flatten phi and store back into new vector
     y_dot = np.concatenate([Phi_dot.flatten(), x_dot])
@@ -232,6 +235,7 @@ def discretize(f, x, u, tf, K, const):
         # Define initial value for integrating
         y0 = np.concatenate([np.eye(7).flatten(), x_k])
         # Numerically integrate to solve for the state transition matrix Phi
+        # TODO: Rajiv -> triple check this logic, idk how to verify the time-step correctness?
         sol = integrate.solve_ivp(dPhi, [tau_k, tau_kp1], y0,
                                   args=(f, u_func, tf, const),
                                   max_step=1e-4, t_eval=tau_points)
