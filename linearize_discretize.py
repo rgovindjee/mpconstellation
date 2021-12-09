@@ -4,7 +4,7 @@ from simulator import Simulator
 import logging
 
 class Discretizer():
-    def __init__(self, const, rho_func=Simulator.get_atmo_density, drho_func=None, include_drag=False, include_J2=False):
+    def __init__(self, const, rho_func=Simulator.get_atmo_density, drho_func=None, include_drag=False, include_J2=False, use_scipy_ZOH = False):
         """
         Args:
             const: Constants object, with variables MU, R_E, J2, S, G0, ISP, CD
@@ -14,6 +14,7 @@ class Discretizer():
         # Global variables that affect dynamics
         self.include_drag = include_drag
         self.include_J2 = include_J2
+        self.use_scipy_ZOH = use_scipy_ZOH
 
         # TODO: Chase to look at rho_func and drho_func
         self.rho_func = rho_func # Not necessarily the right function
@@ -250,8 +251,10 @@ class Discretizer():
         Sigma_k = []
         xi_k = []
 
-        u_func = lambda tau: self.u_FOH(tau, u)
-        #u_func = interpolate.interp1d(tau, u, kind='linear', axis = 1) # takes slightly longer
+        if self.use_scipy_ZOH:
+            u_func = interpolate.interp1d(tau, u, kind='linear', axis = 1) # takes slightly longer
+        else:
+            u_func = lambda tau: self.u_FOH(tau, u)
 
         # Ideally make the for loop below parallelized
         for k in range(0, K-1):

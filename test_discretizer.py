@@ -10,7 +10,7 @@ import random
 
 class TestDiscretizer(unittest.TestCase):
 
-    def test_single_state(self):
+    def test_single_state(self, use_scipy_ZOH = False):
         # Initial states are based on orbit of Hubble Space Telescope on January 19, 2016
         # Initial position
         r_init = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
@@ -37,9 +37,8 @@ class TestDiscretizer(unittest.TestCase):
         y0 = np.concatenate([sat.position/r0, sat.velocity/v0, np.array([sat.mass/m0])])
         # Normalize system parameters (pg. 21)
         const = constants.Constants(MU=MU_EARTH/mu0, R_E=R_EARTH/r0, J2=J2, G0=G0/a0, ISP=ISP/s0, S=S/r0**2, R0=r0, RHO=m0/r0**3)
-        print(f"consts: {const.G0}, {const.ISP}")
         # Create discretizer object with default arguments (no drag, no J2)
-        d = Discretizer(const)
+        d = Discretizer(const, use_scipy_ZOH = use_scipy_ZOH)
         # Set up inputs
         x = np.hstack([sat.position/r0, sat.velocity/v0, [sat.mass/m0]])
         x = np.column_stack([x, x])
@@ -56,6 +55,14 @@ class TestDiscretizer(unittest.TestCase):
         print(f"xi_k = {xi_k}")
         # Expect: a 3D view of the orbit
         #plot_orbit_3D(sim.sim_data[sat.id].T)
+
+    def test_custom_ZOH(self):
+        print("Results with custom ZOH")
+        self.test_single_state(False)
+        print("\n")
+        print("Results with built-in ZOH")
+        self.test_single_state(True)
+
 
 if __name__ == '__main__':
     unittest.main()
