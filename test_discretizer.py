@@ -13,15 +13,15 @@ class TestDiscretizer(unittest.TestCase):
     def test_single_state(self):
         # Initial states are based on orbit of Hubble Space Telescope on January 19, 2016
         # Initial position
-        r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
+        r_init = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
         # Initial velocity
-        v0 = np.array([4.6921, 4.9848, -3.2752]) * 1000 # m/s
+        v_init = np.array([4.6921, 4.9848, -3.2752]) * 1000 # m/s
         # Initial Thrust
-        T_init = np.array([0.44, 0.7, 1.0])  # N
+        T_init = np.array([0.44, 0.7, 1.0])  # unitless, normalized
         # Initial Mass
-        m0 = 12200  # kg
-        sat = Satellite(r0, v0, m0, T_init)
-        sim = Simulator(sats=[sat])  # Use default controller
+        m_init = 12200  # kg
+        sat = Satellite(r_init, v_init, m_init, T_init)
+        sim = Simulator(sats=[sat], controller = ConstantThrustController([sat], T_init))  # Use default controller
         sim.run(tf=1)  # Run for 1 orbit
 
         # Set up const dict

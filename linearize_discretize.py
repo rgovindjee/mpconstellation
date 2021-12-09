@@ -19,12 +19,17 @@ class Discretizer():
         self.rho_func = rho_func # Not necessarily the right function
         self.drho_func = drho_func
 
+        # ODE solver parameters
+        self.ivp_max_step = 1e-2
+        self.ivp_solver = 'RK45'
+
         # Numerical integration parameters
         self.integrator_steps = 101
-        self.integrator_max_step = 1e-2
+        self.use_uniform_steps = False # Numerical integration ignores integrator steps and uses times as determined by solve_ivp() if this is True
+
 
         # Set up logging
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(level=logging.INFO)
 
     def A_func(self, f, x, u, tf):
         """
@@ -113,8 +118,8 @@ class Discretizer():
         # Partial derivative of a_T with respect to thrust
         DT_aT = (1/m)*np.eye(3)
         # Build Duf
-        logging.info(f"B_func T:\n{T}")
-        logging.info(f"norm T: {np.linalg.norm(T)}")
+        logging.debug(f"B_func T:\n{T}")
+        logging.debug(f"norm T: {np.linalg.norm(T)}")
         DT_fm = -(T.T)/(self.const.G0*self.const.ISP*np.linalg.norm(T))
         Duf = np.vstack([np.zeros((3, 3)), DT_aT, DT_fm])
         # Calculate and output B
@@ -206,21 +211,17 @@ class Discretizer():
         Returns:
             Interpolated u at time tau, u(tau)
         """
-        # TODO(jx): fix this it's broken
-        K = u.shape[1] # Number of points for discretization
-        dtau = 1/(K-1) # Length of each interval in tau units
-        k = int(tau // dtau) # lower index of interval to interpolate in
-        return u[:, 0] # TODO: remove test
-        tau_k = (k-1)/(K-1) # left bound of interval in tau
-        tau_kp1 = (k)/(K-1)
-        lambda_kn = (tau_kp1 - tau)/(tau_kp1 - tau_k)
-        lambda_kp = (tau - tau_k)/(tau_kp1 - tau_k)
-        logging.debug(f"k in u_FOH: {k}")
-        logging.debug(f"tau in u_FOH: {tau}")
-        logging.debug(f"u in u_FOH: {u}")
-        out = lambda_kn*u[:, k] + lambda_kp*u[:, k+1] if tau != 1 else lambda_kn*u[:, -1]
-        logging.debug(f"output of u_FOH: {out}")
-        return out
+        if tau == 1:
+            return u[:,-1]
+        else:
+            K = u.shape[1] # Number of points for discretization
+            dtau = 1/(K-1) # Length of each interval in tau units
+            k = int(tau // dtau) # lower index of interval to interpolate in
+            tau_k = k/(K-1) # left bound of interval
+            tau_kp1 = (k+1)/(K-1) # right bound of interval 
+            lambda_kn = (tau_kp1 - tau)/(tau_kp1 - tau_k)
+            lambda_kp = (tau - tau_k)/(tau_kp1 - tau_k)
+            return lambda_kn*u[:, k] + lambda_kp*u[:, k+1]
 
 
     def discretize(self, f, x, u, tf, K):
@@ -256,45 +257,54 @@ class Discretizer():
             # Extract values
             tau_k = tau[k]  # Left bound of temporal node
             tau_kp1 = tau[k+1]  # Right bound of temporal node
-            tau_points = np.linspace(tau_k, tau_kp1, self.integrator_steps)  # Used for intergration
+            if self.use_uniform_steps:
+                tau_points = np.linspace(tau_k, tau_kp1, self.integrator_steps)  # Used for intergration
+            else:
+                tau_points = None
             x_k = x[:, k]  # Get reference state for current node
             logging.debug(f"x_k reference state: {x_k}")
             # Solve for the state transition matrix Phi, evaluated at tau_points
             # Define initial value for integrating
             y0 = np.concatenate([np.eye(7).flatten(), x_k])
             # Numerically integrate to solve for the state transition matrix Phi
-            # TODO: Rajiv -> triple check this logic, idk how to verify the time-step correctness?
             dPhi = self.dPhi_gen()
             sol = integrate.solve_ivp(dPhi, [tau_k, tau_kp1], y0,
                                       args=(f, u_func, tf),
-                                      max_step=self.integrator_max_step, t_eval=tau_points)
+                                      max_step=self.ivp_max_step,
+                                      solver = self.ivp_solver, 
+                                      t_eval=tau_points)
             # Extract final phi to get equation A_k = Phi(k+1)
             Phi_kp1 = np.reshape(sol.y[0:49, -1], (7, 7))
             A_k.append(Phi_kp1)
 
             # Numerically integrate for Bk-, Bk+, Sigma, xi
-            Phi_series = np.reshape(sol.y[0:49,:], (tau_points.size, 7,7))
+            if self.use_uniform_steps:
+                int_points = tau_points
+            else:
+                int_points = sol.t
+
+            Phi_series = np.reshape(sol.y[0:49,:].T, (int_points.size, 7,7))
             x_series = sol.y[49:56, :]
-            B_series = np.zeros((tau_points.size, 7,3))
-            Sigma_series = np.zeros((7,tau_points.size))
-            xi_series = np.zeros((7, tau_points.size))
-            lambda_kn = (tau_kp1 - tau_points)/(tau_kp1 - tau_k)
-            lambda_kp = (tau_points - tau_k)/(tau_kp1 - tau_k)
-            for i, t in enumerate(tau_points):
+            B_series = np.zeros((int_points.size, 7,3))
+            Sigma_series = np.zeros((7,int_points.size))
+            xi_series = np.zeros((7, int_points.size))
+            lambda_kn = (tau_kp1 - int_points)/(tau_kp1 - tau_k)
+            lambda_kp = (int_points - tau_k)/(tau_kp1 - tau_k)
+            for i, t in enumerate(int_points):
                 B_series[i,:,:] = self.B_func(x_series[:,i],u_func(t),tf)
                 Sigma_series[:,i] = self.Sigma_func(f, x_series[:,i], u_func, tau=t)
                 xi_series[:,i] = self.xi_func(f, x_series[:,i], u_func(t),tf)
-
-            # TODO: verify this is mathematically valid
-            logging.info(f"Phi_series: {Phi_series[-1, :, :]}")
-            Phi_inv = np.linalg.pinv(Phi_series)
+            
+            logging.info(f"Last phi series: {Phi_series[-1,:,:]}")
+            logging.info(f"Integration points: {int_points}")
+            Phi_inv = np.linalg.inv(Phi_series)
             Bn_integrand = Phi_inv @ (B_series * lambda_kn[:,None,None])
             Bp_integrand = Phi_inv @ (B_series * lambda_kp[:,None,None])
-            Sigma_integrand = np.column_stack([Phi_inv[i,:,:] @ Sigma_series[:,i] for i in range(0,tau_points.size)])
-            xi_integrand = np.column_stack([Phi_inv[i,:,:] @ xi_series[:,i] for i in range(0,tau_points.size)])
-            B_kp.append(Phi_kp1 @ np.trapz(y = Bp_integrand, x = tau_points, axis = 0))
-            B_kn.append(Phi_kp1 @ np.trapz(y = Bn_integrand, x = tau_points, axis = 0))
-            Sigma_k.append(Phi_kp1 @ np.trapz(y = Sigma_integrand, x = tau_points, axis = 1))
-            xi_k.append(Phi_kp1 @ np.trapz(y = xi_integrand, x = tau_points, axis = 1))
+            Sigma_integrand = np.column_stack([Phi_inv[i,:,:] @ Sigma_series[:,i] for i in range(0,int_points.size)])
+            xi_integrand = np.column_stack([Phi_inv[i,:,:] @ xi_series[:,i] for i in range(0,int_points.size)])
+            B_kp.append(Phi_kp1 @ np.trapz(y = Bp_integrand, x = int_points, axis = 0))
+            B_kn.append(Phi_kp1 @ np.trapz(y = Bn_integrand, x = int_points, axis = 0))
+            Sigma_k.append(Phi_kp1 @ np.trapz(y = Sigma_integrand, x = int_points, axis = 1))
+            xi_k.append(Phi_kp1 @ np.trapz(y = xi_integrand, x = int_points, axis = 1))
 
         return A_k, B_kp, B_kn, Sigma_k, xi_k
