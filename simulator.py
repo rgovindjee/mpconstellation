@@ -6,14 +6,17 @@ from control import *
 from satellite import Satellite
 
 class Simulator:
-    def __init__(self, sats=[], controller=Controller()):
+    def __init__(self, sats=[], controller=Controller(), base_res=100):
         """
         Arguments:
             sats: list of Satellite objects to use for simulation
             controller = Controller object to use for simulation
         """
         self.sim_data = {}  # Data produced by simulator runs
+        self.sim_full_state = {}  # Data produced by simulator runs
         self.sats = sats
+        self.base_res = base_res  # Number of points evaluated in one orbit
+        self.eval_points = self.base_res  # Initialize assuming one orbit
         self.controller = controller
 
     def run(self, tf=10):
@@ -23,11 +26,17 @@ class Simulator:
         Runs a simulation for all satellites.
         Returns an dictionary with satellite IDs as keys and 3 x T arrays of x, y, z coordinates as values.
         """
+        # Set resolution proportional to number of orbits
+        self.eval_points = int(self.base_res*tf)
         pos_dict = {}
+        state_dict = {}
         for sat in self.sats:
             u_func = self.controller.get_u_func()
             curr_pos = self.get_trajectory_ODE(sat, tf, u_func)
+            # TODO(rgg): refactor so this is more elegant but also fix the test
+            state_dict[sat.id] = self.last_run_state
             pos_dict[sat.id] = curr_pos
+        self.sim_full_state = state_dict
         self.sim_data = pos_dict
         return self.sim_data
 
@@ -51,12 +60,12 @@ class Simulator:
 
 
     @staticmethod
-    def satellite_dynamics(tau, y, u_func, tf, const):
+    def satellite_dynamics(tau, y, u_func, tf, const, include_drag=True, include_J2=True):
         """
         Arguments:
             tau: normalized time, values from 0 to 1
             y: state vector: [position, velocity, mass] - 7 x 1
-            u: thrust function, u = u(tau). This allows for open-loop control only.
+            u_func: thrust function, u = u(y, tau).
             tf: final time used for normalization
             const: Constants class containing parameters MU, R_E, J2, S, G0, ISP
         Returns:
@@ -69,6 +78,7 @@ class Simulator:
         v = y[3:6]
         # Get mass and thrust
         m = y[6]
+        # TODO: investigate why this doesn't throw errors because y should be a 7-vec
         thrust = y[7:10]
         r_z = r[2]
         r_norm = np.linalg.norm(r)
@@ -78,15 +88,19 @@ class Simulator:
         # Velocity ODE
         # Accel from gravity
         a_g = -const.MU/(r_norm)**3 * r
-        # Accel from J2
-        A = np.array([ [5*(r_z/r_norm)**2 - 1,0,0], [0,5*(r_z/r_norm)**2 - 1,0], [0,0,5*(r_z/r_norm)**2 - 3]])
-        a_j2 = 1.5*const.J2*const.MU*const.R_E**2/np.linalg.norm(r)**5 * np.dot(A, r)
         # Accel from thrust; ignore thrust value
-        a_u = u_func(tau) / m
-        # Accel from atmospheric drag
-        a_d = -1/2 * C_D * const.S * (1 / m) * (Simulator.get_atmo_density(r, const.R0)/const.RHO) * np.linalg.norm(v) * v
+        a_u = u_func(y, tau) / m
+        y_dot[3:6] = a_g + a_u
+        if include_drag:
+            # Accel from atmospheric drag
+            a_d = -1/2 * C_D * const.S * (1 / m) * (Simulator.get_atmo_density(r, const.R0)/const.RHO) * np.linalg.norm(v) * v
+            y_dot[3:6] += a_d
+        if include_J2:
+            # Accel from J2
+            A = np.array([ [5*(r_z/r_norm)**2 - 1,0,0], [0,5*(r_z/r_norm)**2 - 1,0], [0,0,5*(r_z/r_norm)**2 - 3]])
+            a_j2 = 1.5*const.J2*const.MU*const.R_E**2/np.linalg.norm(r)**5 * np.dot(A, r)
+            y_dot[3:6] += a_J2
         # TODO(jx): implement accel from solar wind JX: No solar wind will be considered for now
-        y_dot[3:6] = a_g + a_j2 + a_u + a_d
         # Mass ODE
         y_dot[6] = -np.linalg.norm(thrust)/(const.G0*const.ISP)
         return tf*y_dot
@@ -97,7 +111,7 @@ class Simulator:
             sat: Satellite object
             ts: timestep in seconds
             tf: (roughly) number of orbits, i.e. tf = 1 is 1 orbit.
-            u: u(tau) takes in a normalized time tau and outputs a 3x1 thrust vector. Used for open-loop control only.
+            u_func: u(y, tau) takes in a normalized time tau and outputs a normalized 3x1 thrust vector.
         Returns:
             position: 3 x n array of x, y, z coordinates
         Get trajectory with ODE45, normalized dynamics.
@@ -120,10 +134,12 @@ class Simulator:
         const = Constants(MU=MU_EARTH/mu0, R_E=R_EARTH/r0, J2=J2, G0=G0/a0, ISP=ISP/s0, S=S/r0**2, R0=r0, RHO=m0/r0**3)
 
         # Solve IVP:
-        sample_times = np.linspace(0, 1, 101) # Increase the number of samples as needed
+        sample_times = np.linspace(0, 1, self.eval_points) # Increase the number of samples as needed
         max_time_step = 0.001 # Adjust as needed for ODE accuracy
         sol = integrate.solve_ivp(Simulator.satellite_dynamics, [0, 1], y0, args=(u_func, tf, const), t_eval=sample_times, max_step=max_time_step)
         r = sol.y[0:3,:] # Extract positon vector
+        # Save most recent full state data from simulation
+        self.last_run_state = sol.y
         pos = r*r0 # Re-dimensionalize position [m]
         return pos
 

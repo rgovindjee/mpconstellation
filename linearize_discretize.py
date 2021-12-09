@@ -29,7 +29,7 @@ class Discretizer():
         self.use_uniform_steps = False # If False, integration ignores self.integrator_steps and uses non-uniform steps from solve_ivp()
 
         # Set up logging
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.WARNING)
 
     def A_func(self, f, x, u, tf):
         """
@@ -120,7 +120,12 @@ class Discretizer():
         # Build Duf
         logging.debug(f"B_func T:\n{T}")
         logging.debug(f"norm T: {np.linalg.norm(T)}")
-        DT_fm = -(T.T)/(self.const.G0*self.const.ISP*np.linalg.norm(T))
+        # TODO(jx): verify this is reasonable
+        norm_T = np.linalg.norm(T)
+        if norm_T <= np.finfo(float).eps:
+            DT_fm = np.array([[0., 0., 0.]])
+        else:
+            DT_fm = -(T.T)/(self.const.G0*self.const.ISP*norm_T)
         Duf = np.vstack([np.zeros((3, 3)), DT_aT, DT_fm])
         # Calculate and output B
         B = tf*Duf
@@ -183,7 +188,7 @@ class Discretizer():
 
             # y is the combine state vector of phi and x of size (49+7,0)
             # Calculate u with ufunc
-            u = u_func(tau)
+            u = u_func(None, tau)
             # Extract Phi and x
             Phi = np.reshape(y[0:49], (7, 7))
             logging.debug(f"y shape: {y.shape}")
@@ -219,7 +224,7 @@ class Discretizer():
             dtau = 1/(K-1) # Length of each interval in tau units
             k = int(tau // dtau) # lower index of interval to interpolate in
             tau_k = k/(K-1) # left bound of interval
-            tau_kp1 = (k+1)/(K-1) # right bound of interval 
+            tau_kp1 = (k+1)/(K-1) # right bound of interval
             lambda_kn = (tau_kp1 - tau)/(tau_kp1 - tau_k)
             lambda_kp = (tau - tau_k)/(tau_kp1 - tau_k)
             return lambda_kn*u[:, k] + lambda_kp*u[:, k+1]
@@ -252,9 +257,10 @@ class Discretizer():
         xi_k = []
 
         if self.use_scipy_ZOH:
-            u_func = interpolate.interp1d(tau, u, kind='linear', axis = 1) # takes slightly longer
+            # takes slightly longer
+            u_func = lambda y, t: interpolate.interp1d(tau, u, kind='linear', axis = 1)(t)
         else:
-            u_func = lambda tau: self.u_FOH(tau, u)
+            u_func = lambda y, tau: self.u_FOH(tau, u)
 
         # Ideally make the for loop below parallelized
         for k in range(0, K-1):
@@ -275,7 +281,7 @@ class Discretizer():
             sol = integrate.solve_ivp(dPhi, [tau_k, tau_kp1], y0,
                                       args=(f, u_func, tf),
                                       max_step=self.ivp_max_step,
-                                      method=self.ivp_solver, 
+                                      method=self.ivp_solver,
                                       t_eval=tau_points)
             # Extract final phi to get equation A_k = Phi(k+1)
             Phi_kp1 = np.reshape(sol.y[0:49, -1], (7, 7))
@@ -295,10 +301,11 @@ class Discretizer():
             lambda_kn = (tau_kp1 - int_points)/(tau_kp1 - tau_k)
             lambda_kp = (int_points - tau_k)/(tau_kp1 - tau_k)
             for i, t in enumerate(int_points):
-                B_series[i,:,:] = self.B_func(x_series[:,i],u_func(t),tf)
+                # Call u_func with None for states since they aren't used
+                B_series[i,:,:] = self.B_func(x_series[:,i],u_func(None, t),tf)
                 Sigma_series[:,i] = self.Sigma_func(f, x_series[:,i], u_func, tau=t)
-                xi_series[:,i] = self.xi_func(f, x_series[:,i], u_func(t),tf)
-            
+                xi_series[:,i] = self.xi_func(f, x_series[:,i], u_func(None, t),tf)
+
             logging.info(f"Last phi series: {Phi_series[-1,:,:]}")
             logging.info(f"Integration points: {int_points}")
             Phi_inv = np.linalg.inv(Phi_series)

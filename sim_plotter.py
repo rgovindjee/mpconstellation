@@ -2,6 +2,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from constants import *
+from mpl_toolkits.mplot3d import Axes3D # <--- This is important for 3d plotting
 
 # TODO: also plot on a useful projection, not just a top-down view
 def plot_orbit_2D(position_arr):
@@ -36,4 +37,5 @@ def plot_orbit_3D(position_arr):
 
     # Plot satellite trajectory
     ax.plot(position_arr[:, 0], position_arr[:, 1], position_arr[:, 2])
+    plt.gca().set_aspect('equal', adjustable='box')
     plt.show()
