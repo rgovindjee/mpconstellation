@@ -25,8 +25,7 @@ class Discretizer():
 
         # Numerical integration parameters
         self.integrator_steps = 101
-        self.use_uniform_steps = False # Numerical integration ignores integrator steps and uses times as determined by solve_ivp() if this is True
-
+        self.use_uniform_steps = False # If False, integration ignores self.integrator_steps and uses non-uniform steps from solve_ivp()
 
         # Set up logging
         logging.basicConfig(level=logging.INFO)
@@ -258,9 +257,9 @@ class Discretizer():
             tau_k = tau[k]  # Left bound of temporal node
             tau_kp1 = tau[k+1]  # Right bound of temporal node
             if self.use_uniform_steps:
-                tau_points = np.linspace(tau_k, tau_kp1, self.integrator_steps)  # Used for intergration
+                tau_points = np.linspace(tau_k, tau_kp1, self.integrator_steps) # Set times for which solve_ivp should output values
             else:
-                tau_points = None
+                tau_points = None # No pre-determined evaluation times, let solve_ivp() decide
             x_k = x[:, k]  # Get reference state for current node
             logging.debug(f"x_k reference state: {x_k}")
             # Solve for the state transition matrix Phi, evaluated at tau_points
