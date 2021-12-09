@@ -1,5 +1,5 @@
 import numpy as np
-from scipy import integrate
+from scipy import integrate, interpolate
 from simulator import Simulator
 import logging
 
@@ -199,6 +199,7 @@ class Discretizer():
             return y_dot
         return dPhi
 
+
     def u_FOH(self, tau, u):
         """
         First order hold interpolation of a signal u
@@ -250,6 +251,7 @@ class Discretizer():
         xi_k = []
 
         u_func = lambda tau: self.u_FOH(tau, u)
+        #u_func = interpolate.interp1d(tau, u, kind='linear', axis = 1) # takes slightly longer
 
         # Ideally make the for loop below parallelized
         for k in range(0, K-1):
@@ -270,7 +272,7 @@ class Discretizer():
             sol = integrate.solve_ivp(dPhi, [tau_k, tau_kp1], y0,
                                       args=(f, u_func, tf),
                                       max_step=self.ivp_max_step,
-                                      solver = self.ivp_solver, 
+                                      method=self.ivp_solver, 
                                       t_eval=tau_points)
             # Extract final phi to get equation A_k = Phi(k+1)
             Phi_kp1 = np.reshape(sol.y[0:49, -1], (7, 7))
