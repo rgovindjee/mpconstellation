@@ -37,16 +37,16 @@ class Simulator:
         Arguments:
             r: current normalized position vector
             r0: initial position norm
-        Returns: 
+        Returns:
             Atmospheric density at given altitude in kg/m^3
-        Calculates atmospheric density based on current altitude and is 
-        only accurate between 480-520km because of linearization. 
+        Calculates atmospheric density based on current altitude and is
+        only accurate between 480-520km because of linearization.
         Based on tabulated Harris-Priester Atmospheric Density Model found
         on page 91 of Satellite Orbits by Gill and Montenbruck
         """
         altitude = np.linalg.norm(r * r0) - R_EARTH
         # return 8E26 * altitude**-6.828 # power model for 400-600km but too slow
-        # return -1E-17 * altitude**6E-12 # linear model for 480-520km - also slows down solver slightly 
+        # return -1E-17 * altitude**6E-12 # linear model for 480-520km - also slows down solver slightly
         return 9.983E-13 # fixed density for 500km
 
 
@@ -118,7 +118,7 @@ class Simulator:
 
         # Normalize system parameters (pg. 21)
         const = Constants(MU=MU_EARTH/mu0, R_E=R_EARTH/r0, J2=J2, G0=G0/a0, ISP=ISP/s0, S=S/r0**2, R0=r0, RHO=m0/r0**3)
-        
+
         # Solve IVP:
         sample_times = np.linspace(0, 1, 101) # Increase the number of samples as needed
         max_time_step = 0.001 # Adjust as needed for ODE accuracy
