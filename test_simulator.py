@@ -56,8 +56,7 @@ class TestSimulator(unittest.TestCase):
         m0 = 12200  # kg
         sat = Satellite(r0, v0, m0, T0)
         # Create constant thrust controller
-        # TODO(jx): fix this when the control input scaling is fixed
-        c = ConstantThrustController(thrust=np.array([0., 0., 0.5]))
+        c = ConstantThrustController(thrust=np.array([0., 0., 1]))
         sim = Simulator(sats=[sat], controller=c)
         sim.run(tf=15)  # Run for 15 orbits
         # Expect: a 3D view of the orbit
