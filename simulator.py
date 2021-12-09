@@ -73,13 +73,11 @@ class Simulator:
         Dynamics function of the form y_dot = f(tau, y, params)
         """
         # References: (2.36 - 2.38, 2.95 - 2.97)
-        # Get position, velocity
+        # Get position, velocity, mass
         r = y[0:3]
         v = y[3:6]
-        # Get mass and thrust
         m = y[6]
-        # TODO: investigate why this doesn't throw errors because y should be a 7-vec
-        thrust = y[7:10]
+        # Define helper variables
         r_z = r[2]
         r_norm = np.linalg.norm(r)
         # Position ODE
@@ -89,7 +87,8 @@ class Simulator:
         # Accel from gravity
         a_g = -const.MU/(r_norm)**3 * r
         # Accel from thrust; ignore thrust value
-        a_u = u_func(y, tau) / m
+        u = u_func(y, tau) # Get thrust
+        a_u = u / m
         y_dot[3:6] = a_g + a_u
         if include_drag:
             # Accel from atmospheric drag
@@ -100,9 +99,8 @@ class Simulator:
             A = np.array([ [5*(r_z/r_norm)**2 - 1,0,0], [0,5*(r_z/r_norm)**2 - 1,0], [0,0,5*(r_z/r_norm)**2 - 3]])
             a_J2 = 1.5*const.J2*const.MU*const.R_E**2/np.linalg.norm(r)**5 * np.dot(A, r)
             y_dot[3:6] += a_J2
-        # TODO(jx): implement accel from solar wind JX: No solar wind will be considered for now
         # Mass ODE
-        y_dot[6] = -np.linalg.norm(thrust)/(const.G0*const.ISP)
+        y_dot[6] = -np.linalg.norm(u)/(const.G0*const.ISP)
         return tf*y_dot
 
     def get_trajectory_ODE(self, sat, tf, u_func):
