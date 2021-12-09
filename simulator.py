@@ -98,7 +98,7 @@ class Simulator:
         if include_J2:
             # Accel from J2
             A = np.array([ [5*(r_z/r_norm)**2 - 1,0,0], [0,5*(r_z/r_norm)**2 - 1,0], [0,0,5*(r_z/r_norm)**2 - 3]])
-            a_j2 = 1.5*const.J2*const.MU*const.R_E**2/np.linalg.norm(r)**5 * np.dot(A, r)
+            a_J2 = 1.5*const.J2*const.MU*const.R_E**2/np.linalg.norm(r)**5 * np.dot(A, r)
             y_dot[3:6] += a_J2
         # TODO(jx): implement accel from solar wind JX: No solar wind will be considered for now
         # Mass ODE

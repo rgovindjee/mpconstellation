@@ -103,7 +103,6 @@ class TestDiscretizer(unittest.TestCase):
         x_k = x[:,0]
         pos_discrete = [x_k[0:3]]
         for k in range(K-1):
-            print(f"Step {k}")
             x_k1 = A_k[k] @ x_k + B_kn[k] @ u[:,k] + B_kp[k] @ u[:,k] + Sigma_k[k]*tf + xi_k[k]
             pos_discrete.append(x_k1[0:3])
             x_k = x_k1
