@@ -37,5 +37,4 @@ def plot_orbit_3D(position_arr):
 
     # Plot satellite trajectory
     ax.plot(position_arr[:, 0], position_arr[:, 1], position_arr[:, 2])
-    plt.gca().set_aspect('equal', adjustable='box')
     plt.show()

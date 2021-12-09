@@ -166,7 +166,7 @@ class Discretizer():
             Sigma: 7 vector
         """
         # Compute Sigma (pg 22)
-        Sigma = f(tau, x, u_func, tf, self.const)
+        Sigma = f(tau, x, u_func, tf, self.const, include_J2 = self.include_J2, include_drag = self.include_drag)
         return Sigma
 
 
@@ -199,7 +199,7 @@ class Discretizer():
             # Update new Phi and x
             Phi_dot = A @ Phi
             # TODO: Investigate if tf is in f -> format f
-            x_dot = f(tau, x, u_func, tf, self.const)
+            x_dot = f(tau, x, u_func, tf, self.const, include_J2 = self.include_J2, include_drag = self.include_drag)
             # Flatten phi and store back into new vector
             y_dot = np.concatenate([Phi_dot.flatten(), x_dot])
             return y_dot
