@@ -8,14 +8,12 @@ class Satellite:
     """
     def __init__(self, position=np.array([0., 0., 0.]),
                        velocity=np.array([0., 0., 0.]),
-                       mass=0.,
-                       thrust=np.array([0., 0., 0.])):
+                       mass=0.):
         """
         Arguments:
             position: 3 x 1 array (m)
             velocity: 3 x 1 array (m/s)
             mass: scalar (kg)
-            thrust: 3 x 1 array (N)
         The position and velocity vectors are coordinated in an inertial
         reference frame placed at the center of the central body with its
         z-axis aligned with rotation axis of the central body
@@ -23,8 +21,16 @@ class Satellite:
         self.position = position
         self.velocity = velocity
         self.mass = mass
-        self.thrust = thrust
         self.id = uuid.uuid4().int  # Assign a unique numeric identifier to the satellite
+
+
+    def get_state_vector(self):
+        """
+        Returns:
+            The (7,) state vector of the satellite
+        """
+        return np.concatenate([self.position, self.velocity, np.array([self.mass])])
+
 
     def __str__(self):
         return (
