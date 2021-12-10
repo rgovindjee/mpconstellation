@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 # Import mayavi if installed
 try:
     from mayavi import mlab
+    from tvtk.api import tvtk
     _mayavi_available = True
 except:
     _mayavi_available = False
@@ -41,7 +42,16 @@ def plot_orbit_3D(trajectories, references = [], use_mayavi = True, show_quiver=
     Plots trajectories on a 3D representation of the Earth
     """
     if _mayavi_available and use_mayavi:
-        earth = mlab.points3d(0, 0, 0, 2*R_EARTH,scale_factor = 1, resolution = 1024, opacity=0.8)
+        # Generate an Earth
+        fig = mlab.figure(size=(600,600))
+        img = tvtk.JPEGReader()
+        img.file_name = "blue_marble.jpg"
+        texture = tvtk.Texture(input_connection=img.output_port, interpolate=1)
+        sphere = tvtk.TexturedSphereSource(radius=R_EARTH, theta_resolution=180, phi_resolution=180)
+        sphere_mapper = tvtk.PolyDataMapper(input_connection=sphere.output_port)
+        sphere_actor = tvtk.Actor(mapper=sphere_mapper, texture=texture)
+        fig.scene.add_actor(sphere_actor)
+        #earth = mlab.points3d(0, 0, 0, 2*R_EARTH,scale_factor = 1, resolution = 1024, opacity=0.8)
         for r in references:
             mlab.plot3d(r[0,:], r[1,:], r[2,:], tube_radius = 50000, color=(0,1,0))
         # Plot trajectories
