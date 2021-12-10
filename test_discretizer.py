@@ -84,12 +84,13 @@ class TestDiscretizer(unittest.TestCase):
         plot_orbit_3D(pos_discrete_array)
 
     def test_linearize_many(self):
-        tf = 1.
-        K = 100
-        sim = Simulator(sats=[self.sat], controller=ConstantThrustController([self.sat], self.T_init), base_res=K)
+        tf = 3.
+        base_res = 100
+        K = int(base_res*tf)
+        sim = Simulator(sats=[self.sat], controller=ConstantThrustController([self.sat], self.T_init), base_res=base_res)
         sim.run(tf=tf)  # Run for 1 orbit
         # Show expected results
-        #plot_orbit_3D(sim.sim_data[self.sat.id].T)
+        plot_orbit_3D(sim.sim_data[self.sat.id].T)
 
         # Create discretizer object with default arguments (no drag, no J2)
         d = Discretizer(self.const, use_scipy_ZOH=False)
@@ -106,6 +107,7 @@ class TestDiscretizer(unittest.TestCase):
             x_k1 = A_k[k] @ x_k + B_kn[k] @ u[:,k] + B_kp[k] @ u[:,k] + Sigma_k[k]*tf + xi_k[k]
             pos_discrete.append(x_k1[0:3])
             x_k = x_k1
+        print(f"final mass: {x[-1, -1]}")
         # Construct numpy array from list of rows and re-dimensionalize
         pos_discrete_array = np.array(pos_discrete)*self.r0
         # Expect: a 3D view of the orbit
