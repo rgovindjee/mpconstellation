@@ -3,6 +3,7 @@ from scipy import integrate, interpolate
 from simulator import Simulator
 import logging
 
+
 class Discretizer():
     def __init__(self, const, rho_func=Simulator.get_atmo_density, drho_func=None, include_drag=False, include_J2=False, use_scipy_ZOH = False):
         """
@@ -31,7 +32,8 @@ class Discretizer():
         # Set up logging
         logging.basicConfig(level=logging.WARNING)
 
-    def A_func(self, f, x, u, tf):
+
+    def A_func(self, x, u, tf):
         """
         Linearize satellite dynamics about reference x and reference u
         gives A (pg 22, pg 118)
@@ -67,10 +69,10 @@ class Discretizer():
             GJ2 = np.diag([5*rz_norm_sq-1, 5*rz_norm_sq-1, 5*rz_norm_sq-3])
             ddr = (5*(rz**2)*(-2*(r.T/(r_norm**4)))
                    + (5/(r_norm**2))*np.array([[0, 0, 2*rz]]))
-            Dr_aJ2 = (np.matmul(kJ2*GJ2*r, -5*r.T/(r_norm**7))
+            Dr_aJ2 = ((kJ2*GJ2 @ r) @ (-5*r.T/(r_norm**7))
                       + kJ2/(r_norm**5)
                       * np.vstack([rx*ddr, ry*ddr, rz*ddr])
-                      + kJ2/(r_norm**5) * GJ2 * np.eye(3))
+                      + kJ2/(r_norm**5) * (GJ2 @ np.eye(3)))
         else:
             Dr_aJ2 = np.zeros((3, 3))
         # Partial derivative of a_D with respect to position, velocity, mass
@@ -78,10 +80,9 @@ class Discretizer():
             # Get atmospheric densities
             rho = self.rho_func(x[0:3])
             drho = self.drho_func(x[0:3])
-            Dr_aD = np.matmul(-(self.const.CD*self.const.S/(2*m))*v_norm*v,
-                              drho * r.T/r_norm)
-            Dv_aD = -((rho*self.const.CD*self.const.S)/(2*m))*(v_norm*np.eye(3)
-                                                     + (1/(v_norm))*np.matmul(v, v.T))
+            Dr_aD = ((-self.const.CD*self.const.S/(2*m))*v_norm*v)@(drho * r.T/r_norm)
+            Dv_aD = ((-rho*self.const.CD*self.const.S)/(2*m))*(v_norm*np.eye(3)
+                    + (1/(v_norm))*(v @ v.T))
             Dm_aD = ((rho*self.const.CD*self.const.S)/(2*m**2))*v_norm*v
         else:
             Dr_aD = np.zeros((3, 3))
@@ -120,7 +121,6 @@ class Discretizer():
         # Build Duf
         logging.debug(f"B_func T:\n{T}")
         logging.debug(f"norm T: {np.linalg.norm(T)}")
-        # TODO(jx): verify this is reasonable
         norm_T = np.linalg.norm(T)
         if norm_T <= np.finfo(float).eps:
             DT_fm = np.array([[0., 0., 0.]])
@@ -146,14 +146,14 @@ class Discretizer():
             xi: 7 vector
         """
         # Compute A and B matrices
-        A = self.A_func(f, x, u, tf)
+        A = self.A_func(x, u, tf)
         B = self.B_func(x, u, tf)
         # Compute xi (pg 22)
-        xi = -(np.dot(A, x) + np.dot(B, u))
+        xi = -((A @ x) + (B @ u))
         return xi
 
 
-    def Sigma_func(self, f, x, u_func, tau, tf=1):
+    def Sigma_func(self, f, x, u_func, tau):
         """
         Linearize satellite dynamics about reference x and reference u, gives Sigma
 
@@ -166,6 +166,7 @@ class Discretizer():
             Sigma: 7 vector
         """
         # Compute Sigma (pg 22)
+        tf = 1 # tf must equal 1, Sigma is the non-normalized dynamics
         Sigma = f(tau, x, u_func, tf, self.const, include_J2 = self.include_J2, include_drag = self.include_drag)
         return Sigma
 
@@ -187,7 +188,7 @@ class Discretizer():
             """
 
             # y is the combine state vector of phi and x of size (49+7,0)
-            # Calculate u with ufunc
+            # Calculate u with ufunc, using None for states since interpolating
             u = u_func(None, tau)
             # Extract Phi and x
             Phi = np.reshape(y[0:49], (7, 7))
@@ -195,10 +196,11 @@ class Discretizer():
             x = y[49:56]
             logging.debug(f"x shape: {x.shape}")
             # Calculate A
-            A = self.A_func(f, x, u, tf)
+            A = self.A_func(x, u, tf)
             # Update new Phi and x
             Phi_dot = A @ Phi
-            # TODO: Investigate if tf is in f -> format f
+            # TODO: Investigate if tf is supposed to be in f 
+            # RESOLVED: (Jason) I believe tf is supposed to be in f
             x_dot = f(tau, x, u_func, tf, self.const, include_J2 = self.include_J2, include_drag = self.include_drag)
             # Flatten phi and store back into new vector
             y_dot = np.concatenate([Phi_dot.flatten(), x_dot])
@@ -292,14 +294,18 @@ class Discretizer():
                 int_points = tau_points
             else:
                 int_points = sol.t
-
+            # Extract a series of Phi matrices
             Phi_series = np.reshape(sol.y[0:49,:].T, (int_points.size, 7,7))
-            x_series = sol.y[49:56, :]
+            # Extract state vectors
+            x_series = sol.y[49:56,:]
+            # Preallocate arrays
             B_series = np.zeros((int_points.size, 7,3))
             Sigma_series = np.zeros((7,int_points.size))
             xi_series = np.zeros((7, int_points.size))
+            # Calculate lambda terms (for use in B integrand)
             lambda_kn = (tau_kp1 - int_points)/(tau_kp1 - tau_k)
             lambda_kp = (int_points - tau_k)/(tau_kp1 - tau_k)
+            # Evaluate B, Sigma, and xi linearization functions
             for i, t in enumerate(int_points):
                 # Call u_func with None for states since they aren't used
                 B_series[i,:,:] = self.B_func(x_series[:,i],u_func(None, t),tf)
@@ -308,14 +314,17 @@ class Discretizer():
 
             logging.info(f"Last phi series: {Phi_series[-1,:,:]}")
             logging.info(f"Integration points: {int_points}")
-            Phi_inv = np.linalg.inv(Phi_series)
+            Phi_inv = np.linalg.inv(Phi_series) # Phi must be invertible
+            # Compute B integrands, size is n x 3 x 3
             Bn_integrand = Phi_inv @ (B_series * lambda_kn[:,None,None])
             Bp_integrand = Phi_inv @ (B_series * lambda_kp[:,None,None])
+            # Compute Sigma, xi integrands, size is n x 7
             Sigma_integrand = np.column_stack([Phi_inv[i,:,:] @ Sigma_series[:,i] for i in range(0,int_points.size)])
             xi_integrand = np.column_stack([Phi_inv[i,:,:] @ xi_series[:,i] for i in range(0,int_points.size)])
+            # Numerically integrate with trapz, along the right axis, and store
             B_kp.append(Phi_kp1 @ np.trapz(y = Bp_integrand, x = int_points, axis = 0))
             B_kn.append(Phi_kp1 @ np.trapz(y = Bn_integrand, x = int_points, axis = 0))
             Sigma_k.append(Phi_kp1 @ np.trapz(y = Sigma_integrand, x = int_points, axis = 1))
             xi_k.append(Phi_kp1 @ np.trapz(y = xi_integrand, x = int_points, axis = 1))
-
+        # Output list of linearization matrices
         return A_k, B_kp, B_kn, Sigma_k, xi_k

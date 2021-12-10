@@ -4,13 +4,15 @@ from datetime import datetime
 from constants import *
 from control import *
 from satellite import Satellite
+from satellite_scale import SatelliteScale
 
 class Simulator:
-    def __init__(self, sats=[], controller=Controller(), base_res=100):
+    def __init__(self, sats=[], controller=Controller(), scale=SatelliteScale(), base_res=100, include_drag = True, include_J2 = True):
         """
-        Arguments:
+        Args:
             sats: list of Satellite objects to use for simulation
             controller = Controller object to use for simulation
+            scale = SatelliteScale object, defines simulator output scaling.
         """
         self.sim_data = {}  # Data produced by simulator runs
         self.sim_full_state = {}  # Data produced by simulator runs
@@ -18,26 +20,25 @@ class Simulator:
         self.base_res = base_res  # Number of points evaluated in one orbit
         self.eval_points = self.base_res  # Initialize assuming one orbit
         self.controller = controller
+        self.include_drag = include_drag
+        self.include_J2 = include_J2
+        self.scale = scale # Scaling object to dimensionalize, normalize
 
     def run(self, tf=10):
-        """
-        Arguments:
+        """Runs a simulation for all satellites.
+        Args:
             tf: rough number of orbits
-        Runs a simulation for all satellites.
-        Returns an dictionary with satellite IDs as keys and 3 x T arrays of x, y, z coordinates as values.
+        Returns: 
+            A dictionary with satellite IDs as keys and 7 x T arrays of 
+            state vectors, non-dimensionalzed (scaled) by simulator scale.
         """
         # Set resolution proportional to number of orbits
         self.eval_points = int(self.base_res*tf)
-        pos_dict = {}
         state_dict = {}
         for sat in self.sats:
             u_func = self.controller.get_u_func()
-            curr_pos = self.get_trajectory_ODE(sat, tf, u_func)
-            # TODO(rgg): refactor so this is more elegant but also fix the test
-            state_dict[sat.id] = self.last_run_state
-            pos_dict[sat.id] = curr_pos
-        self.sim_full_state = state_dict
-        self.sim_data = pos_dict
+            state_dict[sat.id] = self.get_trajectory_ODE(sat, tf, u_func)
+        self.sim_data = state_dict
         return self.sim_data
 
     @staticmethod
@@ -103,6 +104,7 @@ class Simulator:
         y_dot[6] = -np.linalg.norm(u)/(const.G0*const.ISP)
         return tf*y_dot
 
+
     def get_trajectory_ODE(self, sat, tf, u_func):
         """
         Arguments:
@@ -111,85 +113,32 @@ class Simulator:
             tf: (roughly) number of orbits, i.e. tf = 1 is 1 orbit.
             u_func: u(y, tau) takes in a normalized time tau and outputs a normalized 3x1 thrust vector.
         Returns:
-            position: 3 x n array of x, y, z coordinates
+            state: 7 x n array of state vectors
         Get trajectory with ODE45, normalized dynamics.
         This function simulates the trajectory of a single satellite using the
         current state as the initial value.
         """
-        # Designer units (pg. 20)
-        r0  = np.linalg.norm(sat.position)
-        s0 = 2*np.pi*np.sqrt(r0**3/MU_EARTH)
-        v0 = r0/s0
-        a0 = r0/s0**2
-        m0 = sat.mass
-        T0 = m0*r0/s0**2
-        mu0 = r0**3/s0**2
-
         # Normalized state vector (pg. 21)
-        y0 = np.concatenate([sat.position/r0, sat.velocity/v0, np.array([sat.mass/m0])])
+        y0 = self.scale.normalize_state(sat.get_state_vector())
 
         # Normalize system parameters (pg. 21)
-        const = Constants(MU=MU_EARTH/mu0, R_E=R_EARTH/r0, J2=J2, G0=G0/a0, ISP=ISP/s0, S=S/r0**2, R0=r0, RHO=m0/r0**3)
+        const = self.scale.get_normalized_constants()
 
         # Solve IVP:
         sample_times = np.linspace(0, 1, self.eval_points) # Increase the number of samples as needed
         max_time_step = 0.001 # Adjust as needed for ODE accuracy
-        sol = integrate.solve_ivp(Simulator.satellite_dynamics, [0, 1], y0, args=(u_func, tf, const), t_eval=sample_times, max_step=max_time_step)
-        r = sol.y[0:3,:] # Extract positon vector
+        sol = integrate.solve_ivp(Simulator.satellite_dynamics, [0, 1], y0, args=(u_func, tf, const, self.include_drag, self.include_J2), t_eval=sample_times, max_step=max_time_step)
         # Save most recent full state data from simulation
-        self.last_run_state = sol.y
-        pos = r*r0 # Re-dimensionalize position [m]
-        return pos
+        return sol.y
 
-    def get_trajectory(self, sat, ts, tf):
-        """
-        Arguments:
-            sat: Satellite object
-            ts: timestep in seconds
-            tf: final time in seconds
-        Returns:
-            position: 3 x n array of x, y, z coordinates
-        Gets satellite trajectory with the forward Euler method
-        """
-        n = int(tf / ts)
-        position = np.zeros(shape=(n, 3))
-        init = sat.position
-        for i in range(n):
-            self.update_satellite_state(sat, ts)
-            position[i, :] = sat.position
-            if np.linalg.norm(position[i, :]) < R_EARTH:
-                # If magnitude of position vector for any point is less than the earth's
-                # radius, that means the satellite has crashed into earth
-                print("Crashed!")
-                print(position[i, :])
-        final = sat.position
-        print(f'Error with ts={ts}')
-        print(np.linalg.norm(final) - np.linalg.norm(init))
-        return position
 
-    # Forward Euler time-step method
-    @staticmethod
-    def update_satellite_state(sat, time_step):
-        # Update Position
-        position_next = sat.velocity * time_step + sat.position
-
-        # Update Velocity
-        accel = -(MU_EARTH / np.linalg.norm(sat.position) ** 3) * sat.position + sat.thrust / sat.mass
-        velocity_next = accel * time_step + sat.velocity
-
-        # Update Mass
-        mass_dot = np.linalg.norm(sat.thrust) / G0 * ISP
-        mass_next = mass_dot * time_step + sat.mass
-
-        # Update Satellite object
-        sat.position = position_next
-        sat.velocity = velocity_next
-        sat.mass = mass_next
-
-    def save_to_csv(self, suffix=""):
+    def save_to_csv(self, suffix="", redimensionalize = True):
         """
         Export trajectory to CSV for visualization in MATLAB
         """
         date = datetime.today().strftime('%Y-%m-%d-%H-%M-%S')
         for sat in self.sats:
-            np.savetxt(f"trajectory_{date}_{sat.id}{suffix}.csv", self.sim_data[sat.id].T, delimiter=",")
+            if redimensionalize:
+                np.savetxt(f"trajectory_{date}_{sat.id}{suffix}.csv", self.scale.redim_state(self.sim_data[sat.id]).T, delimiter=",")
+            else:
+                np.savetxt(f"trajectory_{date}_{sat.id}{suffix}.csv", self.sim_data[sat.id].T, delimiter=",")
