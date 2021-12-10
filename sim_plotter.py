@@ -30,23 +30,26 @@ def plot_orbit_2D(trajectories):
     plt.gca().set_aspect('equal')
     plt.show()
 
-def plot_orbit_3D(trajectories, references = [], use_mayavi = True):
+def plot_orbit_3D(trajectories, references = [], use_mayavi = True, show_quiver=True):
     """
     Arguments:
         trajectories: N list of 3 x T arrays of x, y, z positions, or 7 x T
                       arrays of state vectors.
         references: K list of 3 x T arrays of x, y, z positions, or 7 x T
-                    arrays of state vectors. Reference trajectories colored red.
+                    arrays of state vectors. Reference trajectories colored green.
         use_mayavi: Boolean, use mayavi or matplotlib.
     Plots trajectories on a 3D representation of the Earth
     """
     if _mayavi_available and use_mayavi:
         earth = mlab.points3d(0, 0, 0, 2*R_EARTH,scale_factor = 1, resolution = 1024, opacity=0.8)
         for r in references:
-            mlab.plot3d(r[0,:], r[1,:], r[2,:], tube_radius = 80000, color=(1,0,0))
-        # Plot remaining trajectories
+            mlab.plot3d(r[0,:], r[1,:], r[2,:], tube_radius = 50000, color=(0,1,0))
+        # Plot trajectories
         for t in trajectories:
-            mlab.plot3d(t[0,:], t[1,:], t[2,:], tube_radius=80000)
+            if show_quiver and t.shape[0] == 7:
+                idx = np.linspace(0, t.shape[1]-1, 40, dtype=int)
+                mlab.quiver3d(t[0,idx], t[1,idx], t[2,idx], t[3,idx], t[4,idx], t[5,idx],mode='cone', scale_factor=100, color=(0.5,0,0))
+            mlab.plot3d(t[0,:], t[1,:], t[2,:], tube_radius=50000, color=(1,0,0))
         mlab.show()
     else:
         ax = plt.axes(projection='3d')

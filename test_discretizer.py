@@ -91,16 +91,16 @@ class TestDiscretizer(unittest.TestCase):
         # Adjustable parameters
         tf = 1
         base_res = 100
+        # Use simulator to generate a reference (guess) trajectory
         sim = Simulator(sats=[self.sat], controller=ConstantThrustController([self.sat], T_init), scale=self.scale, base_res=base_res, include_drag = False, include_J2 = False)
         sim.run(tf=tf)
         # Create discretizer object with default arguments (no drag, no J2)
         d = Discretizer(self.const, use_scipy_ZOH=False, include_drag = False, include_J2 = False)
         # Set up inputs
-        x = sim.sim_data[self.sat.id] # From simulation, need to normalize.
+        x = sim.sim_data[self.sat.id] # Guess trajectory from simulation
         K = x.shape[1] #K = int(base_res*tf)
         print(f"final mass: {x[-1, -1]}")
-        print(f"x shape: {x.shape}")
-        u = np.tile(T_init, (3, K))
+        u = np.tile(T_init, (3, K)) # Inputs constant for this example
         f = Simulator.satellite_dynamics
         A_k, B_kp, B_kn, Sigma_k, xi_k = d.discretize(f, x, u, tf, K)
         # Perform the forward simulation
@@ -116,6 +116,38 @@ class TestDiscretizer(unittest.TestCase):
         # Expect: a 3D view of the orbit
         plot_orbit_3D(trajectories=x_discrete_array, references=[self.scale.redim_state(x)], use_mayavi=True)
 
+
+    def test_linearize_tangential(self):
+        # Initial Thrust
+        T_tan_mag = 0.5  # Tangential Trhust magnitude
+        c = ConstantTangentialThrustController([self.sat], T_tan_mag)
+        # Adjustable parameters
+        tf = 2
+        base_res = 100
+        # Use simulator to generate a reference (guess) trajectory
+        sim = Simulator(sats=[self.sat], controller=c, scale=self.scale, base_res=base_res, include_drag = False, include_J2 = False)
+        sim.run(tf=tf)
+        # Create discretizer object with default arguments (no drag, no J2)
+        d = Discretizer(self.const, use_scipy_ZOH=False, include_drag = False, include_J2 = False)
+        # Set up inputs
+        x = sim.sim_data[self.sat.id] # Guess trajectory from simulation
+        K = x.shape[1] #K = int(base_res*tf)
+        print(f"final mass: {x[-1, -1]}")
+        u = d.extract_uk(x, sim.sim_time[self.sat.id], c) # Guess inputs
+        f = Simulator.satellite_dynamics
+        A_k, B_kp, B_kn, Sigma_k, xi_k = d.discretize(f, x, u, tf, K)
+        # Perform the forward simulation
+        x_k = x[:,0] # Start with initial conditions
+        x_discrete = [x_k]
+        print("K: {K}")
+        for k in range(K-1):
+            x_k1 = A_k[k] @ x_k + B_kn[k] @ u[:,k] + B_kp[k] @ u[:,k+1] + Sigma_k[k]*tf + xi_k[k]
+            x_discrete.append(x_k1)
+            x_k = x_k1
+        # Construct numpy array from list of rows and re-dimensionalize
+        x_discrete_array = [self.scale.redim_state(np.column_stack(x_discrete))]
+        # Expect: a 3D view of the orbit
+        plot_orbit_3D(trajectories=x_discrete_array, references=[self.scale.redim_state(x)], use_mayavi=True)
 
     def test_custom_ZOH(self):
         print("Results with custom ZOH")

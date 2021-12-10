@@ -328,3 +328,23 @@ class Discretizer():
             xi_k.append(Phi_kp1 @ np.trapz(y = xi_integrand, x = int_points, axis = 1))
         # Output list of linearization matrices
         return A_k, B_kp, B_kn, Sigma_k, xi_k
+
+    
+    def extract_uk(self, x_k, tau_k, controller):
+        """Utility function to extract u_k from x_k and tau_k
+        Extracts the control inputs u_k needed for linearize/discretize based
+        on guess states of x_k at tau_k as outputted by the simulator.
+
+        Args:
+            x_k: 7 x K numpy array of state vectors
+            tau_k: numpy vector of size K of sample times
+            controller: same controller as used by simulator to generate x_k
+
+        Returns:
+            3 x K numpy array of control inputs u
+        """
+        u_func = controller.get_u_func()
+        u_k = []
+        for i in range(x_k.shape[1]): # Iterate through each column
+            u_k.append(u_func(x_k[:,i],tau_k[i]))
+        return np.column_stack(u_k)
