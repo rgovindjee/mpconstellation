@@ -15,7 +15,7 @@ class Simulator:
             scale = SatelliteScale object, defines simulator output scaling.
         """
         self.sim_data = {}  # Data produced by simulator runs
-        self.sim_full_state = {}  # Data produced by simulator runs
+        self.sim_time = {} # Time points for the simulator data
         self.sats = sats
         self.base_res = base_res  # Number of points evaluated in one orbit
         self.eval_points = self.base_res  # Initialize assuming one orbit
@@ -35,11 +35,15 @@ class Simulator:
         # Set resolution proportional to number of orbits
         self.eval_points = int(self.base_res*tf)
         state_dict = {}
+        time_dict = {}
         for sat in self.sats:
             u_func = self.controller.get_u_func()
-            state_dict[sat.id] = self.get_trajectory_ODE(sat, tf, u_func)
+            sol = self.get_trajectory_ODE(sat, tf, u_func)
+            state_dict[sat.id] = sol.y
+            time_dict[sat.id] = sol.t
         self.sim_data = state_dict
-        return self.sim_data
+        self.sim_time = time_dict
+        return self.sim_data, self.sim_time
 
     @staticmethod
     def get_atmo_density(r, r0):
@@ -111,7 +115,8 @@ class Simulator:
             sat: Satellite object
             ts: timestep in seconds
             tf: (roughly) number of orbits, i.e. tf = 1 is 1 orbit.
-            u_func: u(y, tau) takes in a normalized time tau and outputs a normalized 3x1 thrust vector.
+            u_func: u(x, tau) takes in state vector x and a normalized time 
+                    tau and outputs a normalized 3x1 thrust vector.
         Returns:
             state: 7 x n array of state vectors
         Get trajectory with ODE45, normalized dynamics.
@@ -128,8 +133,8 @@ class Simulator:
         sample_times = np.linspace(0, 1, self.eval_points) # Increase the number of samples as needed
         max_time_step = 0.001 # Adjust as needed for ODE accuracy
         sol = integrate.solve_ivp(Simulator.satellite_dynamics, [0, 1], y0, args=(u_func, tf, const, self.include_drag, self.include_J2), t_eval=sample_times, max_step=max_time_step)
-        # Save most recent full state data from simulation
-        return sol.y
+        # Output solution from solve_ivp
+        return sol
 
 
     def save_to_csv(self, suffix="", redimensionalize = True):
