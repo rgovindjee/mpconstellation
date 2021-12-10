@@ -14,7 +14,7 @@ class TestPlotter(unittest.TestCase):
         z = (radius/10)*np.cos(th*5)
         pos = np.array([x, y, z])
         # Expect: a 2D view of the orbit from one of Earth's poles
-        plot_orbit_2D(pos.T)
+        plot_orbit_2D([pos])
 
     def test_plot_orbit_3D(self):
         # Generate a trajectory to plot with some interesting oscillation in z
@@ -25,7 +25,7 @@ class TestPlotter(unittest.TestCase):
         z = (radius/10)*np.cos(th*5)
         pos = np.array([x, y, z])
         # Expect: a 3D view of the orbit
-        plot_orbit_3D(pos.T)
+        plot_orbit_3D(trajectories=[pos], references=[], use_mayavi=True)
 
 if __name__ == '__main__':
     unittest.main()
