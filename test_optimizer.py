@@ -47,9 +47,10 @@ class TestOptimizer(unittest.TestCase):
         nu_bar = np.zeros((7, K))
         f = Simulator.satellite_dynamics
         # Create Optimizer object
+        opt_options = {'r_des':np.linalg.norm(x[0:3, -1])}
         opt = Optimizer([x], [u_bar], [nu_bar], tf, d, f, self.scale)
         opt.get_constraint_terms()
-        opt.solve_OPT()
+        opt.solve_OPT(input_options=opt_options)
         print(f"model:\n {opt.model}")
         # Expect: a 3D view of the orbit
         #plot_orbit_3D(trajectories=x_discrete_array, references=[self.scale.redim_state(x)], use_mayavi=True)
