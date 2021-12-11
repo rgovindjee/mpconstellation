@@ -60,6 +60,7 @@ def plot_orbit_3D(trajectories, references = [], use_mayavi = True, show_quiver=
                 idx = np.linspace(0, t.shape[1]-1, 40, dtype=int)
                 mlab.quiver3d(t[0,idx], t[1,idx], t[2,idx], t[3,idx], t[4,idx], t[5,idx],mode='cone', scale_factor=100, color=(0.5,0,0))
             mlab.plot3d(t[0,:], t[1,:], t[2,:], tube_radius=50000, color=(1,0,0))
+        mlab.orientation_axes()
         mlab.show()
     else:
         ax = plt.axes(projection='3d')
