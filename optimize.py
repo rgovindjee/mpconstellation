@@ -1,3 +1,4 @@
+from numpy.core.numeric import indices
 import pyomo.environ as pyo
 import numpy as np
 from sim_plotter import *
@@ -8,195 +9,520 @@ from linearize_discretize import Discretizer
 import matplotlib.pyplot as plt
 
 
-def skew(x):
-    return np.array([[0, -x[2], x[1]],
-                     [x[2], 0, -x[0]],
-                     [-x[1], x[0], 0]])
+class Optimize:
+    def __init__(self, x_bar, u_bar, nu_bar, tf, d, f, const):
+        """
+            Arguments:
+            x_bar: A list of N elements. Each element is a numpy array of shape
+                (7, K) reference state trajectories
+            u_bar: A list of N elements. Each element is a numpy array of shape
+                (3, K) reference thrust trajectories
+            nu_bar: A list of N elements. Each element is a numpy array of shape
+                (7, K) virtual control vectors
+            tf: Scalar
+            d: Discretizer object
+            f: Satellite dynamics object
+            const: A constants object
+        """
 
-def plot_normalized_thrust(u, T0):
-    u = u/T0
-    fig, ax = plt.subplots()
-    time = np.linspace(0,1,len(u))
-    ax.plot(time, u[:,0], label='x')
-    ax.plot(time, u[:,1], label='y')
-    ax.plot(time, u[:,2], label='z')
-    ax.set_title('Normalized Thrust Commands')
-    plt.show()
-
-
-def solve_optimal_control(N, tf, x0, u0, A_k, B_kp, B_kn, Sigma_k, xi_k, x_lim, u_lim, x_f, ref_pos_norm, v_s, v_m, r_f, v_f):
-    """
-    Solves optimal control problem with the given constraints 
-    """
-    model = pyo.ConcreteModel()
-    model.N = N
-    model.nx = np.size(x0)
-    model.nu = np.size(u0)
-
-    # Length of optimization problem:
-    model.tIDX = pyo.Set(initialize=range(0, N+1))
-    model.xIDX = pyo.Set(initialize=range(0, model.nx))
-    model.uIDX = pyo.Set(initialize=range(0, model.nu))
-
-    # Create state and input variables trajectory:
-    model.x = pyo.Var(model.xIDX, model.tIDX)
-    model.u = pyo.Var(model.uIDX, model.tIDX)
-    
-    # Slack for final radial height
-    model.eps_r = pyo.Var()
-
-    # For minimum time problems 
-    model.tf = pyo.Var()
-
-    # Add linearized/discretized matrices to model
-    model.A_k = A_k
-    model.B_kp = B_kp
-    model.B_kn = B_kn
-    model.Sigma_k = Sigma_k
-    model.xi_k = xi_k
-
-    # Slack Variables for Circularization Constraints
-    model.eps_vr = pyo.Var()
-    model.eps_vn = pyo.Var()
-    model.eps_vt = pyo.Var()
-
-    # Needed non-linear mass dot equation
-    non_zero = 1e-8
-
-    # Objective: Minimize Time For Orbit Raising and Circularization
-    def minimize_time(model):
-        cost = model.tf**2
-        return cost
-    
-    def dynamics_const_rule(model, i, t):
-        return model.x[i, t+1] - (sum(model.A_k[i, j]  * model.x[j, t] for j in model.xIDX)
-                               +  sum(model.B_kp[i, j] * model.u[j, t] for j in model.uIDX)
-                               +  sum(model.B_kn[i, j] * model.u[j, t] for j in model.uIDX)
-                               +  sum(model.Sigma_k[j] * model.tf for j in model.xIDX)
-                               +  sum(model.xi_k[j] for j in model.xIDX)) == 0.0 if t < model.N else pyo.Constraint.Skip
-
-    # Set cost function
-    model.cost = pyo.Objective(rule=minimize_time, sense=pyo.minimize)
-
-    # Initialize States
-    model.init_states = pyo.Constraint(model.xIDX, rule=lambda model, i: model.x[i, 0] == x0[i])
-
-    # Initialize Inputs
-    model.init_inputs = pyo.Constraint(model.uIDX, rule=lambda model, i: model.u[i, 0] == u0[i])
-
-    # Linearized Dynamics Constraints
-    model.dynamics = pyo.Constraint(model.xIDX, model.tIDX, rule=dynamics_const_rule)
-    model.mass_final = pyo.Constraint(expr=(model.x[6,N] >= .9))
-
-    # Thrust Contstraints
-    model.thrust_max = pyo.Constraint(model.tIDX, rule=lambda model, 
-                                      t: model.u[0,t]**2 + model.u[1,t]**2 + model.u[2,t]**2 <= u_lim[1]**2 
-                                      if t < N else pyo.Constraint.Skip)
-
-    # Constraints on the bounds of the trajectory radial distance
-    model.radial_min = pyo.Constraint(model.tIDX, rule=lambda model, 
-                                      t: ref_pos_norm[0,t] * model.x[0,t] + ref_pos_norm[1,t] * model.x[1,t] + ref_pos_norm[2,t] * model.x[2,t] >= x_lim[0]
-                                      if t < N else pyo.Constraint.Skip)
-
-    model.radial_max = pyo.Constraint(model.tIDX, rule=lambda model, 
-                                      t: model.x[0,t]**2 + model.x[1,t]**2 + model.x[2,t]**2 <= x_lim[1]**2 
-                                      if t < N else pyo.Constraint.Skip)
-
-    # Constraints on the final radial distance
-    model.radial_final_min = pyo.Constraint(model.tIDX, rule=lambda model, 
-                                      t: r_final[0] * model.x[0,N] + r_final[1] * model.x[1,N] + r_final[2] * model.x[2,N] >= (x_f[0] - model.eps_r)**2
-                                      if t < N else pyo.Constraint.Skip)
-    model.radial_final_max = pyo.Constraint(expr=model.x[0, N]**2 + model.x[1, N]**2 + model.x[2, N]**2  <= (x_f[0] + model.eps_r)**2)
-
-    # Radial Velocity Constraints
-    model.vr_max = pyo.Constraint(expr=(v_s[0] + (
-                                      v_m[0][0] * (model.x[0, N] - r_f[0])
-                                    + v_m[0][1] * (model.x[1, N] - r_f[1])
-                                    + v_m[0][2] * (model.x[2, N] - r_f[2])
-                                    + v_m[0][3] * (model.x[3, N] - v_f[0])
-                                    + v_m[0][4] * (model.x[4, N] - v_f[1])
-                                    + v_m[0][5] * (model.x[5, N] - v_f[2]))) <= model.eps_vr)
-
-    model.vr_min = pyo.Constraint(expr=-(v_s[0] + (
-                                      v_m[0][0] * (model.x[0, N] - r_f[0])
-                                    + v_m[0][1] * (model.x[1, N] - r_f[1])
-                                    + v_m[0][2] * (model.x[2, N] - r_f[2])
-                                    + v_m[0][3] * (model.x[3, N] - v_f[0])
-                                    + v_m[0][4] * (model.x[4, N] - v_f[1])
-                                    + v_m[0][5] * (model.x[5, N] - v_f[2]))) >= -model.eps_vr)
-
-    # Normal Velocity Constraints
-    model.vn_max = pyo.Constraint(expr=v_s[1] + (
-                                      v_m[1][0] * (model.x[0, N] - r_f[0])
-                                    + v_m[1][1] * (model.x[1, N] - r_f[1])
-                                    + v_m[1][2] * (model.x[2, N] - r_f[2])
-                                    + v_m[1][3] * (model.x[3, N] - v_f[0])
-                                    + v_m[1][4] * (model.x[4, N] - v_f[1])
-                                    + v_m[1][5] * (model.x[5, N] - v_f[2])) <= model.eps_vn)
-
-    model.vn_min = pyo.Constraint(expr=-(v_s[1] + (
-                                      v_m[1][0] * (model.x[0, N] - r_f[0])
-                                    + v_m[1][1] * (model.x[1, N] - r_f[1])
-                                    + v_m[1][2] * (model.x[2, N] - r_f[2])
-                                    + v_m[1][3] * (model.x[3, N] - v_f[0])
-                                    + v_m[1][4] * (model.x[4, N] - v_f[1])
-                                    + v_m[1][5] * (model.x[5, N] - v_f[2]))) >= -model.eps_vn)
-
-    # Tangential Velocity Constraints
-    model.vt_max = pyo.Constraint(expr=v_s[2] + (
-                                      v_m[2][0] * (model.x[0, N] - r_f[0])
-                                    + v_m[2][1] * (model.x[1, N] - r_f[1])
-                                    + v_m[2][2] * (model.x[2, N] - r_f[2])
-                                    + v_m[2][3] * (model.x[3, N] - v_f[0])
-                                    + v_m[2][4] * (model.x[4, N] - v_f[1])
-                                    + v_m[2][5] * (model.x[5, N] - v_f[2])) 
-                                    <= 
-                                      v_s[3] + ( 
-                                      v_m[3][0] * (model.x[0, N] - r_f[0])
-                                    + v_m[3][1] * (model.x[1, N] - r_f[1])
-                                    + v_m[3][2] * (model.x[2, N] - r_f[2]) + model.eps_vt))
-
-    model.vt_min = pyo.Constraint(expr=v_s[3] + ( 
-                                       v_m[3][0] * (model.x[0, N] - r_f[0])
-                                    +  v_m[3][1] * (model.x[1, N] - r_f[1])
-                                    +  v_m[3][2] * (model.x[2, N] - r_f[2]) - model.eps_vt)
-                                      <= 
-                                      v_s[2] + (
-                                      v_m[2][0] * (model.x[0, N] - r_f[0])
-                                    + v_m[2][1] * (model.x[1, N] - r_f[1])
-                                    + v_m[2][2] * (model.x[2, N] - r_f[2])
-                                    + v_m[2][3] * (model.x[3, N] - v_f[0])
-                                    + v_m[2][4] * (model.x[4, N] - v_f[1])
-                                    + v_m[2][5] * (model.x[5, N] - v_f[2]))) 
-
-    # tf needs to be positive but upper bound can be changed
-    model.tf_limits = pyo.Constraint(expr=(0, model.tf, 10.0))
-
-    # Bounds for the slack variable used in the final distance constraints
-    model.eps_r_limits = pyo.Constraint(expr=(0, model.eps_r, 1000))
-
-    # Bounds for the slack variables that are used in the circularization constraints
-    model.eps_vr_limits = pyo.Constraint(expr=(0, model.eps_vr, 1000))
-    model.eps_vn_limits = pyo.Constraint(expr=(0, model.eps_vn, 1000))
-    model.eps_vt_limits = pyo.Constraint(expr=(0, model.eps_vt, 1000))
-
-    model.dual = pyo.Suffix(direction=pyo.Suffix.EXPORT)
-    solver = pyo.SolverFactory('ipopt')
-    # solver.options['max_iter'] = 1000
-    results = solver.solve(model, tee=False)
-
-    xOpt = np.asarray([[model.x[i,t]() for i in model.xIDX] for t in model.tIDX]).T
-    uOpt = np.asarray([[model.u[j,t]() for j in model.uIDX] for t in model.tIDX]).T
-    JOpt = model.cost()
-
-    tfOpt = pyo.value(model.tf)
-
-    print(f'eps_r: {pyo.value(model.eps_r)}')
-    print(f'tf: {pyo.value(model.tf)}')
-
-    return [model, xOpt, uOpt, JOpt, tfOpt]
+        self.x_bar = x_bar
+        self.u_bar = u_bar
+        self.nu_bar = nu_bar
+        self.tf = tf
+        self.d = d
+        self.f = f
+        self._N = len(x_bar)
+        self._K = x_bar[0].shape[1]
+        self.const = const
 
 
+    def skew(x):
+        return np.array([[0, -x[2], x[1]],
+                        [x[2], 0, -x[0]],
+                        [-x[1], x[0], 0]])
+
+
+    def plot_normalized_thrust(u, T0):
+        u = u/T0
+        fig, ax = plt.subplots()
+        time = np.linspace(0,1,len(u))
+        ax.plot(time, u[:,0], label='x')
+        ax.plot(time, u[:,1], label='y')
+        ax.plot(time, u[:,2], label='z')
+        ax.set_title('Normalized Thrust Commands')
+        plt.show()
+
+
+    def get_constraint_terms(self):
+        """
+        Get constraint terms
+
+        Returns:
+            dict containing the following keys:
+                rbar_hat: A list of length N. Each element is a 2D numpy array of (3, K-1)
+                ubar_hat: A list of length N. Each element is a 2D numpy array of (3, K-1)
+                rf_hat: A list of length N. Each element is a 1D numpy vector of (3, )
+                Vc: A list of length N, each element is a scalar
+                DrVc: A list of length N, each element is a 1D vector of (3,)
+                DrVc_rbar: A list of length N, each element is a scalar
+                Vt: A list of length N, each element is a scalar
+                DrVt_DvVt: A list of length N, each element is a 1D vector of (6,)
+                DrVt_DvVt_bar: A list of length N, each element is a scalar
+                Vr: A list of length N, each element is a scalar
+                DrVr_DvVr: A list of length N, each element is a 1D vector of (6,)
+                DrVr_DvVr_bar: A list of length N, each element is a scalar
+                Vn: A list of length N, each element is a scalar
+                DrVn_DvVn: A list of length N, each element a 1D vector of (6,)
+                DrVn_DvVn_bar: A list of length N, each element a scalar
+        """
+        # Preallocate dict
+        output = dict.fromkeys(['rbar_hat', 'ubar_hat', 'rf_hat', 'Vc', 'DrVc', 
+                                'DrVc_rbar', 'Vt', 'DrVt_DvVt', 'DrVt_DvVt_bar', 
+                                'Vr', 'DrVr_DvVr', 'DrVr_DvVr_bar', 'Vn, DrVn_DvVn',
+                                'DrVn_DvVn_bar'], [])
+        I = np.eye(3)
+        for i in range(self._N):
+            # Get RTN unit vectors of final position
+            r_bar_K = self.x_bar[i][0:3,-1]
+            r_final_norm = np.linalg.norm(r_bar_K)
+            v_bar_K = self.x_bar[i][3:6,-1]
+            rv_bar_K = np.concatenate(r_bar_K, v_bar_K)
+            h_K = np.cross(r_bar_K, v_bar_K)
+            r_hat_K = r_bar_K/r_final_norm
+            h_hat_K = h_K/np.linalg.norm(h_K)
+            t_hat_K = np.cross(h_hat_K, r_hat_K)
+            # Partial derivatives of unit vectors
+            Dr_h_hat = ((np.linalg.norm(h_K)**-1 * I) - (np.linalg.norm(h_K)**-3 * np.outer(h_K, h_K))) @ (-self.skew(v_bar_K))
+            Dv_h_hat = (np.linalg.norm(h_K)**-1 * I) - (np.linalg.norm(h_K)**-3 * np.outer(h_K, h_K)) @ (self.skew(r_bar_K))
+            Dr_r_hat = (r_final_norm**-1 * I) - (r_final_norm**-3 * np.outer(r_bar_K, r_bar_K))
+            Dr_t_hat = (-self.skew(r_hat_K) @ Dr_h_hat) + (self.skew(h_hat_K) @ Dr_r_hat)
+            Dv_t_hat = -self.skew(r_hat_K) @ Dv_h_hat
+
+            # Distance constraint terms
+            r_bar = self.x_bar[i][0:3,:-1]
+            output['rbar_hat'].append(r_bar/np.linalg.norm(r_bar, axis=0))
+            # Thrust constraint terms
+            u_bar = self.u_bar[i]
+            output['ubar_hat'].append(u_bar/np.linalg.norm(u_bar, axis=0))
+            # Final position constraint terms
+            output['rf_hat'].append(r_hat_K)
+            # Tangential velocity constraint terms
+            output['Vc'].append(np.sqrt(self.const.MU/r_final_norm))
+            DrVc = (-1/2)*(self.const.MU**0.5)*(r_final_norm**(-5/2))*r_bar_K
+            output['DrVc'].append(DrVc)
+            output['DrVc_rbar'].append(np.dot(DrVc, r_bar_K))
+            output['Vt'].append(np.dot(v_bar_K, t_hat_K))
+            DrVt = np.dot(v_bar_K, Dr_t_hat)
+            DvVt = np.dot(t_hat_K, I) + np.dot(v_bar_K, Dv_t_hat)
+            DrVt_DvVt = np.concatenate([DrVt, DvVt])
+            output['DrVt_DvVt'].append(DrVt_DvVt)
+            output['DrVt_DvVt_bar'].append(np.dot(DrVt_DvVt, rv_bar_K))
+            # Radial velocity constraint terms
+            output['Vr'].append(np.dot(v_bar_K, r_hat_K))
+            DrVr = np.dot(v_bar_K, Dr_r_hat)
+            DvVr = np.dot(r_hat_K, I)
+            DrVr_DvVr = np.concatenate([DrVr, DvVr])
+            output['DrVr_DvVr'].append(DrVr_DvVr)
+            output['DrVr_DvVr_bar'].append(np.dot(DrVr_DvVr, rv_bar_K))
+            # Normal velocity constraint terms
+            output['Vn'].append(np.dot(v_bar_K, h_hat_K))
+            DrVn = np.dot(v_bar_K, Dr_h_hat)
+            DvVn = np.dot(h_hat_K, I) + np.dot(v_bar_K, Dv_h_hat)
+            DrVn_DvVn = np.concatenate([DrVn, DvVn])
+            output['DrVn_DvVn'].append(DrVn_DvVn)
+            output['DrVn_DvVn_bar'].append(np.dot(DrVn_DvVn, rv_bar_K))
+        return output
+
+    def solve_OPT(self):
+        """
+        Transcribes and solves the OPT problem, for N satellites
+        """
+        # First, we must transcribe the OPT:
+        # Discretize and linearize dynamics for all satellites
+        A_k = []
+        B_kp = []
+        B_kn = []
+        Sigma_k = []
+        xi_k = []
+        for i in range(len(self.x_bar)):
+            A_k_i, B_kp_i, B_kn_i, Sigma_k_i, xi_k_i = self.d.discretize(self.f, self.x_bar[i], self.u_bar[i], self.tf)
+            A_k.append(A_k_i)
+            B_kp.append(B_kp_i)
+            B_kn.append(B_kn_i)
+            Sigma_k.append(Sigma_k_i)
+            xi_k.append(xi_k_i)
+        # Create linearized, discretized coefficients used in constraints
+        cons_terms = self.get_constraint_terms()
+        
+        # Formulate and solve Pyomo problem
+        model = pyo.ConcreteModel()
+        model.K = self._K # Number of time steps
+        model.N = self._N # Number of satellites
+        model.xdim = 7
+        model.udim = 3
+        model.nudim = 7
+
+        # Length of optimization problem:
+        model.kIDX = pyo.Set(initialize=range(self.K))
+        model.sIDX = pyo.Set(initialize=range(self.N))
+        model.xIDX = pyo.Set(initialize=range(model.xdim))
+        model.uIDX = pyo.Set(initialize=range(model.udim))
+        # Create state and input variables trajectory:
+        model.x = pyo.Var(model.sIDX, model.xIDX, model.kIDX)
+        model.u = pyo.Var(model.sIDX, model.uIDX, model.kIDX)
+        model.nu = pyo.Var(model.sIDX, model.xIDX, model.kIDX)
+        
+        # Slack for final radial height
+        model.eps_r = pyo.Var()
+
+        # For minimum time problems 
+        model.tf = pyo.Var()
+
+        # Add linearized/discretized matrices to model
+        model.A_k = A_k
+        model.B_kp = B_kp
+        model.B_kn = B_kn
+        model.Sigma_k = Sigma_k
+        model.xi_k = xi_k
+
+        model.cons_terms = cons_terms
+
+        # Slack Variables for Circularization Constraints
+        model.eps_vr = pyo.Var()
+        model.eps_vn = pyo.Var()
+        model.eps_vt = pyo.Var()
+
+        # Needed non-linear mass dot equation
+        non_zero = 1e-8
+
+        # Objective: Minimize Time For Orbit Raising and Circularization
+        def minimize_time(model):
+            cost = model.tf**2 # need slack variables for L1 minimization of nu
+            return cost
+        
+
+        def dynamics_const_rule(model, s, i, t):
+            return (model.x[s, i, t+1] 
+                    - (sum(model.A_k[s][t, i, j]  * model.x[s, j, t] for j in model.xIDX)
+                        + sum(model.B_kn[s][t, i, j] * model.u[s, j, t] for j in model.uIDX)
+                        + sum(model.B_kp[s][t, i, j] * model.u[s, j, t+1] for j in model.uIDX)
+                        + (model.Sigma_k[s][i, t] * model.tf)
+                        + model.xi_k[s][i, t]
+                        + model.nu[s][i, t]) 
+                    == 0.0 if t < model.K else pyo.Constraint.Skip)
+
+        def initial_state_rule(model, s, i):
+            return model.x[s, i, 0] == self.x_bar[s][i,0]
+
+        def initial_thrust_rule(model, s, i):
+            return model.u[s, i, 0] == self.u_bar[s][i,0]
+
+        min_mass = 0.5
+        def final_mass_rule(model, s):
+            return model.x[s, i, model.K-1] > min_mass
+
+        # Set cost function
+        model.cost = pyo.Objective(rule=minimize_time, sense=pyo.minimize)
+        # Initialize States
+        model.init_states = pyo.Constraint(model.sIDX, model.xIDX, rule=initial_state_rule)
+        # Initialize Inputs
+        model.init_inputs = pyo.Constraint(model.sIDX, model.uIDX, rule=initial_thrust_rule)
+        # Linearized Dynamics Constraints
+        model.dynamics = pyo.Constraint(model.sIDX, model.xIDX, model.kIDX, rule=dynamics_const_rule)
+        # Final mass above minimum constraint
+        model.mass_final = pyo.Constraint(model.sIDX, rule=final_mass_rule)
+
+        # Thrust Contstraints
+        u_lim = [0.1, 2]
+        def min_thrust_rule(model, s, t):
+            return (sum(model.cons_terms['ubar_hat'][s][i] * model.u[s,i,t] for i in model.uIDX) 
+                    >= u_lim[0] if t < model.K else pyo.Constraint.Skip)
+
+        model.thrust_min = pyo.Constraint(model.sIDX, model.kIDX, rule=min_thrust_rule)
+
+        model.thrust_max = pyo.Constraint(model.sIDX, model.kIDX, rule=lambda model, s,
+                                        t: model.u[s,0,t]**2 + model.u[s,1,t]**2 + model.u[2,t]**2 <= u_lim[1]**2 
+                                        if t < model.K else pyo.Constraint.Skip)
+
+        # Constraints on the bounds of the trajectory radial distance
+        r_lim = [0, 100] # Fix
+        def min_dist_rule(model, s, t):
+            return (sum(model.cons_terms['rbar_hat'][s][i] * model.x[s,i,t] for i in range(3)) 
+                    >= r_lim[0] if t < model.K else pyo.Constraint.Skip)
+
+
+        model.radial_min = pyo.Constraint(model.sIDX, model.kIDX, rule = min_dist_rule)
+
+        model.radial_max = pyo.Constraint(model.sIDX, model.kIDX, rule=lambda model, s, 
+                                        t: model.x[s,0,t]**2 + model.x[s,1,t]**2 + model.x[s,2,t]**2 <= r_lim[1]**2 
+                                        if t < model.K else pyo.Constraint.Skip)
+
+        # Constraints on the final radial distance
+        r_des = 10000 # Fix
+        def min_final_dist_rule(model, s):
+            return (sum(model.cons_terms['rf_hat'][s][i] * model.x[s,i,model.K-1] for i in range(3)) 
+                    >= (r_des - model.eps_r))
+
+        model.radial_final_min = pyo.Constraint(model.sIDX, rule=min_final_dist_rule)
+        model.radial_final_max = pyo.Constraint(model.sIDX, rule=lambda s: model.x[s, 0, model.K-1]**2 + model.x[s, 1, model.K-1]**2 + model.x[s, 2, model.K-1]**2  <= (r_des + model.eps_r)**2)
+
+        # Radial Velocity Constraints
+        def max_radial_vel_rule(model, s):
+            return (model.cons_terms['Vr'][s] 
+                    + sum(model.cons_terms['DrVr_DvVr'][s][i] * model.x[s,i,model.K-1] for i in range(6)) 
+                    - model.cons_terms['DrVr_DvVr_bar'][s] 
+                    <= model.esp_vr)
+        
+        def min_radial_vel_rule(model, s):
+            return (-1*(model.cons_terms['Vr'][s] 
+                        + sum(model.cons_terms['DrVr_DvVr'][s][i] * model.x[s,i,model.K-1] for i in range(6)) 
+                        - model.cons_terms['DrVr_DvVr_bar'][s]) 
+                    >= -1*model.esp_vr)
+
+        model.vr_max = pyo.Constraint(model.sIDX, rule=max_radial_vel_rule)
+        model.vr_min = pyo.Constraint(model.sIDX, rule=min_radial_vel_rule)
+
+        # Normal Velocity Constraints
+        def max_normal_vel_rule(model, s):
+            return (model.cons_terms['Vn'][s] 
+                    + sum(model.cons_terms['DrVn_DvVn'][s][i] * model.x[s,i,model.K-1] for i in range(6)) 
+                    - model.cons_terms['DrVn_DvVn_bar'][s] 
+                    <= model.esp_vn)
+        
+        def min_normal_vel_rule(model, s):
+            return (-1*(model.cons_terms['Vn'][s] 
+                        + sum(model.cons_terms['DrVn_DvVn'][s][i] * model.x[s,i,model.K-1] for i in range(6)) 
+                        - model.cons_terms['DrVn_DvVn_bar'][s]) 
+                    >= -1*model.esp_vn)
+
+        model.vn_max = pyo.Constraint(model.sIDX, rule=max_normal_vel_rule)
+        model.vn_min = pyo.Constraint(model.sIDX, rule=min_normal_vel_rule)
+
+        # Tangential Velocity Constraints
+        def max_tan_vel_rule(model, s):
+            return (model.cons_terms['Vc'][s] 
+                    + sum(model.cons_terms['DrVc'][s][i]*model.x[s,i,model.K-1] for i in range(3)) 
+                    - model.cons_terms['DrVc_rbar'][s] 
+                    - model.eps_vt 
+                    - model.cons_terms['Vt'][s] 
+                    - sum(model.cons_terms['DrVt_DvVt'][s][i] * model.x[s,i,model.K-1] for i in range(6)) 
+                    + model.cons_terms['DrVt_DvVt_bar'][s] 
+                    <= 0.0)
+
+        def min_tan_vel_rule(model, s):
+            return (model.cons_terms['Vt'][s] 
+                    + sum(model.cons_terms['DrVt_DvVt'][s][i] * model.x[s,i,model.K-1] for i in range(6)) 
+                    - model.cons_terms['DrVt_DvVt_bar'][s]
+                    - model.cons_terms['Vc'][s] 
+                    - sum(model.cons_terms['DrVc'][s][i]*model.x[s,i,model.K-1] for i in range(3)) 
+                    + model.cons_terms['DrVc_rbar'][s] 
+                    - model.eps_vt 
+                    <= 0.0)
+
+        model.vt_max = pyo.Constraint(model.sIDX, rule=max_tan_vel_rule)
+        model.vt_min = pyo.Constraint(model.sIDX, rule=min_tan_vel_rule) 
+
+        # tf needs to be positive but upper bound can be changed
+        model.tf_limits = pyo.Constraint(expr=(0, model.tf, 10.0))
+
+        # Bounds for the slack variable used in the final distance constraints
+        model.eps_r_limits = pyo.Constraint(expr=(0, model.eps_r, 1000))
+
+        # Bounds for the slack variables that are used in the circularization constraints
+        model.eps_vr_limits = pyo.Constraint(expr=(0, model.eps_vr, 1000))
+        model.eps_vn_limits = pyo.Constraint(expr=(0, model.eps_vn, 1000))
+        model.eps_vt_limits = pyo.Constraint(expr=(0, model.eps_vt, 1000))
+
+        model.dual = pyo.Suffix(direction=pyo.Suffix.EXPORT)
+        solver = pyo.SolverFactory('ipopt')
+        # solver.options['max_iter'] = 1000
+        results = solver.solve(model, tee=False)
+
+        xOpt = np.asarray([[model.x[i,t]() for i in model.xIDX] for t in model.tIDX]).T
+        uOpt = np.asarray([[model.u[j,t]() for j in model.uIDX] for t in model.tIDX]).T
+        JOpt = model.cost()
+
+        tfOpt = pyo.value(model.tf)
+
+        print(f'eps_r: {pyo.value(model.eps_r)}')
+        print(f'tf: {pyo.value(model.tf)}')
+
+        return [model, xOpt, uOpt, JOpt, tfOpt]
+
+
+    def solve_optimal_control(N, tf, x0, u0, A_k, B_kp, B_kn, Sigma_k, xi_k, x_lim, u_lim, x_f, ref_pos_norm, v_s, v_m, r_f, v_f):
+        """
+        Solves optimal control problem with the given constraints 
+        """
+        model = pyo.ConcreteModel()
+        model.N = N
+        model.nx = np.size(x0)
+        model.nu = np.size(u0)
+
+        # Length of optimization problem:
+        model.tIDX = pyo.Set(initialize=range(0, N+1))
+        model.xIDX = pyo.Set(initialize=range(0, model.nx))
+        model.uIDX = pyo.Set(initialize=range(0, model.nu))
+
+        # Create state and input variables trajectory:
+        model.x = pyo.Var(model.xIDX, model.tIDX)
+        model.u = pyo.Var(model.uIDX, model.tIDX)
+        
+        # Slack for final radial height
+        model.eps_r = pyo.Var()
+
+        # For minimum time problems 
+        model.tf = pyo.Var()
+
+        # Add linearized/discretized matrices to model
+        model.A_k = A_k
+        model.B_kp = B_kp
+        model.B_kn = B_kn
+        model.Sigma_k = Sigma_k
+        model.xi_k = xi_k
+
+        # Slack Variables for Circularization Constraints
+        model.eps_vr = pyo.Var()
+        model.eps_vn = pyo.Var()
+        model.eps_vt = pyo.Var()
+
+        # Needed non-linear mass dot equation
+        non_zero = 1e-8
+
+        # Objective: Minimize Time For Orbit Raising and Circularization
+        def minimize_time(model):
+            cost = model.tf**2
+            return cost
+        
+        def dynamics_const_rule(model, i, t):
+            return model.x[i, t+1] - (sum(model.A_k[i, j]  * model.x[j, t] for j in model.xIDX)
+                                +  sum(model.B_kp[i, j] * model.u[j, t] for j in model.uIDX)
+                                +  sum(model.B_kn[i, j] * model.u[j, t] for j in model.uIDX)
+                                +  sum(model.Sigma_k[j] * model.tf for j in model.xIDX)
+                                +  sum(model.xi_k[j] for j in model.xIDX)) == 0.0 if t < model.N else pyo.Constraint.Skip
+
+        # Set cost function
+        model.cost = pyo.Objective(rule=minimize_time, sense=pyo.minimize)
+
+        # Initialize States
+        model.init_states = pyo.Constraint(model.xIDX, rule=lambda model, i: model.x[i, 0] == x0[i])
+
+        # Initialize Inputs
+        model.init_inputs = pyo.Constraint(model.uIDX, rule=lambda model, i: model.u[i, 0] == u0[i])
+
+        # Linearized Dynamics Constraints
+        model.dynamics = pyo.Constraint(model.xIDX, model.tIDX, rule=dynamics_const_rule)
+        model.mass_final = pyo.Constraint(expr=(model.x[6,N] >= .9))
+
+        # Thrust Contstraints
+        model.thrust_max = pyo.Constraint(model.tIDX, rule=lambda model, 
+                                        t: model.u[0,t]**2 + model.u[1,t]**2 + model.u[2,t]**2 <= u_lim[1]**2 
+                                        if t < N else pyo.Constraint.Skip)
+
+        # Constraints on the bounds of the trajectory radial distance
+        model.radial_min = pyo.Constraint(model.tIDX, rule=lambda model, 
+                                        t: ref_pos_norm[0,t] * model.x[0,t] + ref_pos_norm[1,t] * model.x[1,t] + ref_pos_norm[2,t] * model.x[2,t] >= x_lim[0]
+                                        if t < N else pyo.Constraint.Skip)
+
+        model.radial_max = pyo.Constraint(model.tIDX, rule=lambda model, 
+                                        t: model.x[0,t]**2 + model.x[1,t]**2 + model.x[2,t]**2 <= x_lim[1]**2 
+                                        if t < N else pyo.Constraint.Skip)
+
+        # Constraints on the final radial distance
+        model.radial_final_min = pyo.Constraint(model.tIDX, rule=lambda model, 
+                                        t: r_final[0] * model.x[0,N] + r_final[1] * model.x[1,N] + r_final[2] * model.x[2,N] >= (x_f[0] - model.eps_r)**2
+                                        if t < N else pyo.Constraint.Skip)
+        model.radial_final_max = pyo.Constraint(expr=model.x[0, N]**2 + model.x[1, N]**2 + model.x[2, N]**2  <= (x_f[0] + model.eps_r)**2)
+
+        # Radial Velocity Constraints
+        model.vr_max = pyo.Constraint(expr=(v_s[0] + (
+                                        v_m[0][0] * (model.x[0, N] - r_f[0])
+                                        + v_m[0][1] * (model.x[1, N] - r_f[1])
+                                        + v_m[0][2] * (model.x[2, N] - r_f[2])
+                                        + v_m[0][3] * (model.x[3, N] - v_f[0])
+                                        + v_m[0][4] * (model.x[4, N] - v_f[1])
+                                        + v_m[0][5] * (model.x[5, N] - v_f[2]))) <= model.eps_vr)
+
+        model.vr_min = pyo.Constraint(expr=-(v_s[0] + (
+                                        v_m[0][0] * (model.x[0, N] - r_f[0])
+                                        + v_m[0][1] * (model.x[1, N] - r_f[1])
+                                        + v_m[0][2] * (model.x[2, N] - r_f[2])
+                                        + v_m[0][3] * (model.x[3, N] - v_f[0])
+                                        + v_m[0][4] * (model.x[4, N] - v_f[1])
+                                        + v_m[0][5] * (model.x[5, N] - v_f[2]))) >= -model.eps_vr)
+
+        # Normal Velocity Constraints
+        model.vn_max = pyo.Constraint(expr=v_s[1] + (
+                                        v_m[1][0] * (model.x[0, N] - r_f[0])
+                                        + v_m[1][1] * (model.x[1, N] - r_f[1])
+                                        + v_m[1][2] * (model.x[2, N] - r_f[2])
+                                        + v_m[1][3] * (model.x[3, N] - v_f[0])
+                                        + v_m[1][4] * (model.x[4, N] - v_f[1])
+                                        + v_m[1][5] * (model.x[5, N] - v_f[2])) <= model.eps_vn)
+
+        model.vn_min = pyo.Constraint(expr=-(v_s[1] + (
+                                        v_m[1][0] * (model.x[0, N] - r_f[0])
+                                        + v_m[1][1] * (model.x[1, N] - r_f[1])
+                                        + v_m[1][2] * (model.x[2, N] - r_f[2])
+                                        + v_m[1][3] * (model.x[3, N] - v_f[0])
+                                        + v_m[1][4] * (model.x[4, N] - v_f[1])
+                                        + v_m[1][5] * (model.x[5, N] - v_f[2]))) >= -model.eps_vn)
+
+        # Tangential Velocity Constraints
+        model.vt_max = pyo.Constraint(expr=v_s[2] + (
+                                        v_m[2][0] * (model.x[0, N] - r_f[0])
+                                        + v_m[2][1] * (model.x[1, N] - r_f[1])
+                                        + v_m[2][2] * (model.x[2, N] - r_f[2])
+                                        + v_m[2][3] * (model.x[3, N] - v_f[0])
+                                        + v_m[2][4] * (model.x[4, N] - v_f[1])
+                                        + v_m[2][5] * (model.x[5, N] - v_f[2])) 
+                                        <= 
+                                        v_s[3] + ( 
+                                        v_m[3][0] * (model.x[0, N] - r_f[0])
+                                        + v_m[3][1] * (model.x[1, N] - r_f[1])
+                                        + v_m[3][2] * (model.x[2, N] - r_f[2]) + model.eps_vt))
+
+        model.vt_min = pyo.Constraint(expr=v_s[3] + ( 
+                                        v_m[3][0] * (model.x[0, N] - r_f[0])
+                                        +  v_m[3][1] * (model.x[1, N] - r_f[1])
+                                        +  v_m[3][2] * (model.x[2, N] - r_f[2]) - model.eps_vt)
+                                        <= 
+                                        v_s[2] + (
+                                        v_m[2][0] * (model.x[0, N] - r_f[0])
+                                        + v_m[2][1] * (model.x[1, N] - r_f[1])
+                                        + v_m[2][2] * (model.x[2, N] - r_f[2])
+                                        + v_m[2][3] * (model.x[3, N] - v_f[0])
+                                        + v_m[2][4] * (model.x[4, N] - v_f[1])
+                                        + v_m[2][5] * (model.x[5, N] - v_f[2]))) 
+
+        # tf needs to be positive but upper bound can be changed
+        model.tf_limits = pyo.Constraint(expr=(0, model.tf, 10.0))
+
+        # Bounds for the slack variable used in the final distance constraints
+        model.eps_r_limits = pyo.Constraint(expr=(0, model.eps_r, 1000))
+
+        # Bounds for the slack variables that are used in the circularization constraints
+        model.eps_vr_limits = pyo.Constraint(expr=(0, model.eps_vr, 1000))
+        model.eps_vn_limits = pyo.Constraint(expr=(0, model.eps_vn, 1000))
+        model.eps_vt_limits = pyo.Constraint(expr=(0, model.eps_vt, 1000))
+
+        model.dual = pyo.Suffix(direction=pyo.Suffix.EXPORT)
+        solver = pyo.SolverFactory('ipopt')
+        # solver.options['max_iter'] = 1000
+        results = solver.solve(model, tee=False)
+
+        xOpt = np.asarray([[model.x[i,t]() for i in model.xIDX] for t in model.tIDX]).T
+        uOpt = np.asarray([[model.u[j,t]() for j in model.uIDX] for t in model.tIDX]).T
+        JOpt = model.cost()
+
+        tfOpt = pyo.value(model.tf)
+
+        print(f'eps_r: {pyo.value(model.eps_r)}')
+        print(f'tf: {pyo.value(model.tf)}')
+
+        return [model, xOpt, uOpt, JOpt, tfOpt]
+
+"""
 # Initial states are based on orbit of Hubble Space Telescope on January 19, 2016
 # Initial position
 sat_position = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
@@ -308,3 +634,4 @@ ref = scale.redim_state(sim.sim_data[sat.id])
 traj = scale.redim_state(xOpt)
 plot_orbit_3D(trajectories=[traj], references=[ref], use_mayavi = False)
 # plot_normalized_thrust(np.where(uOpt.T == None, 0, uOpt.T), T0)
+"""
