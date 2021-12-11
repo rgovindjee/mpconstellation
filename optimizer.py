@@ -149,7 +149,7 @@ class Optimizer:
                     'u_lim':[0.1, 2],
                     'r_lim':[0, 100],
                     'r_des':10000,
-                    'eps_max':100,
+                    'eps_max':1,
                     'tf_max':5,
                     'w_nu':10000}
         merged = {**default, **options}
@@ -300,9 +300,6 @@ class Optimizer:
         # Constraints on the final radial distance
         def min_final_dist_rule(model, s):
             radial_dists = [model.cons_terms['rf_hat'][s][i] * model.x[s,i,model.K-1] for i in range(3)]
-            print("shape of rf_hat:")
-            print(model.cons_terms['rf_hat'][s].shape)
-            print([model.cons_terms['rf_hat'][s][i] for i in range(3)])
             return (sum(radial_dists) >= (options['r_des'] - model.eps_r))
 
         model.radial_final_min = pyo.Constraint(model.sIDX, rule=min_final_dist_rule)
@@ -388,7 +385,7 @@ class Optimizer:
         model.dual = pyo.Suffix(direction=pyo.Suffix.EXPORT)
         solver = pyo.SolverFactory('ipopt')
         # solver.options['max_iter'] = 1000
-        results = solver.solve(model, tee=False)
+        results = solver.solve(model, tee=True)
 
         #xOpt = np.asarray([[model.x[i,t]() for i in model.xIDX] for t in model.tIDX]).T
         #uOpt = np.asarray([[model.u[j,t]() for j in model.uIDX] for t in model.tIDX]).T
