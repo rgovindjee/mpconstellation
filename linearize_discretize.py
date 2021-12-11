@@ -199,7 +199,7 @@ class Discretizer():
             A = self.A_func(x, u, tf)
             # Update new Phi and x
             Phi_dot = A @ Phi
-            # TODO: Investigate if tf is supposed to be in f 
+            # TODO: Investigate if tf is supposed to be in f
             # RESOLVED: (Jason) I believe tf is supposed to be in f
             x_dot = f(tau, x, u_func, tf, self.const, include_J2 = self.include_J2, include_drag = self.include_drag)
             # Flatten phi and store back into new vector
@@ -333,8 +333,9 @@ class Discretizer():
         # Output arrays of linearization matrices
         return A_k, B_kp, B_kn, Sigma_k, xi_k
 
-    
-    def extract_uk(self, x_k, tau_k, controller):
+
+    @staticmethod
+    def extract_uk(x_k, tau_k, controller):
         """Utility function to extract u_k from x_k and tau_k
         Extracts the control inputs u_k needed for linearize/discretize based
         on guess states of x_k at tau_k as outputted by the simulator.

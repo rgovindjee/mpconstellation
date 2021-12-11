@@ -54,7 +54,7 @@ class TestDiscretizer(unittest.TestCase):
             print(f"xi_k = {xi_k}")
 
 
-    def test_linearize_single(self, use_scipy_ZOH = False):
+    def test_linearize_single(self, use_scipy_ZOH=False):
         # Initial Thrust
         T_init = np.array([0.44, 0.7, 1.0])  # unitless, normalized
 
@@ -62,7 +62,7 @@ class TestDiscretizer(unittest.TestCase):
         sim.run(tf=1)  # Run for 1 orbit
 
         # Create discretizer object with default arguments (no drag, no J2)
-        d = Discretizer(self.const, use_scipy_ZOH = use_scipy_ZOH)
+        d = Discretizer(self.const, use_scipy_ZOH=use_scipy_ZOH)
         # Set up inputs
         x = self.scale.normalize_state(self.sat.get_state_vector())
         x = np.column_stack([x, x, x])
@@ -106,7 +106,7 @@ class TestDiscretizer(unittest.TestCase):
         # Perform the forward simulation
         x_k = x[:,0]
         x_discrete = [x_k]
-        print("K: {K}")
+        print(f"K: {K}")
         for k in range(K-1):
             x_k1 = A_k[k,:,:] @ x_k + B_kn[k,:,:] @ u[:,k] + B_kp[k,:,:] @ u[:,k+1] + Sigma_k[:,k]*tf + xi_k[:,k]
             x_discrete.append(x_k1)
@@ -139,7 +139,7 @@ class TestDiscretizer(unittest.TestCase):
         # Perform the forward simulation
         x_k = x[:,0] # Start with initial conditions
         x_discrete = [x_k]
-        print("K: {K}")
+        print(f"K: {K}")
         for k in range(K-1):
             x_k1 = A_k[k,:,:] @ x_k + B_kn[k,:,:] @ u[:,k] + B_kp[k,:,:] @ u[:,k+1] + Sigma_k[:,k]*tf + xi_k[:,k]
             x_discrete.append(x_k1)
@@ -151,10 +151,10 @@ class TestDiscretizer(unittest.TestCase):
 
     def test_custom_ZOH(self):
         print("Results with custom ZOH")
-        self.test_single_state(False)
+        self.test_linearize_single(use_scipy_ZOH=False)
         print("\n")
         print("Results with built-in ZOH")
-        self.test_single_state(True)
+        self.test_linearize_single(use_scipy_ZOH=True)
 
 if __name__ == '__main__':
     unittest.main()
