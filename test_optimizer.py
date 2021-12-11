@@ -53,7 +53,8 @@ class TestOptimizer(unittest.TestCase):
         opt.solve_OPT(input_options=opt_options)
         print(f"model:\n {opt.model}")
         # Expect: a 3D view of the orbit
-        #plot_orbit_3D(trajectories=x_discrete_array, references=[self.scale.redim_state(x)], use_mayavi=True)
+        opt_trajectory = self.scale.redim_state(opt.get_solved_trajectory(0))
+        plot_orbit_3D(trajectories=[opt_trajectory], references=[self.scale.redim_state(x)], use_mayavi=True)
 
 if __name__ == '__main__':
     unittest.main()

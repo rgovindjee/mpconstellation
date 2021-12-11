@@ -146,14 +146,21 @@ class Optimizer:
             options: dictionary of options, may be the empty dict
         """
         default = { 'min_mass':0.5,
-                    'u_lim':[0.1, 2],
+                    'u_lim':[0, 20],
                     'r_lim':[0, 100],
-                    'r_des':10000,
-                    'eps_max':1,
+                    'r_des':1,
+                    'eps_max': 1,
                     'tf_max':5,
-                    'w_nu':10000}
+                    'w_nu':100}
         merged = {**default, **options}
         return merged
+
+    def get_solved_trajectory(self, s):
+        """
+        Returns a trajectory x for satellite s: 7 x K
+        """
+        x = np.asarray([[pyo.value(self.model.x[s, i, k]) for k in self.model.kIDX] for i in self.model.xIDX])
+        return x
 
     def solve_OPT(self, input_options={}):
         """
