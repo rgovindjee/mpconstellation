@@ -50,7 +50,7 @@ class ConstantTangentialThrustController(Controller):
         """
         super().__init__(sats)
         self.tangential_thrust = tangential_thrust
-    
+
 
     def compute_rotation(self, x):
         """
@@ -66,12 +66,45 @@ class ConstantTangentialThrustController(Controller):
         h_hat = h/np.linalg.norm(h)
         t_hat = np.cross(h_hat, r_hat)
         return np.column_stack([r_hat, t_hat, h_hat])
-    
-    
+
+
     def get_u_func(self, sat_id=None):
         u = lambda x, tau: self.compute_rotation(x) @ np.array([0,self.tangential_thrust,0])
         return u
 
+class SequenceController(Controller):
+    """
+    Applies a sequence u over the given range, 0 otherwise. Linearly interpolates between samples
+    """
+    def __init__(self, sats=[], u=np.array([]), tf_u=1, tf_sim=1):
+        """
+        Arguments:
+            sats: list of Satellite objects
+            thrust: 3-element array of thrust in x, y, z direction
+            tf_sim: tf for the simulation that is to be run
+            tf_u: tf for which the inputs u were generated
+        """
+        super().__init__(sats)
+        # Calculate the normalized time tau where the simulation inputs end, if applicable
+        self.end_tau = tf_u / tf_sim
+        self.u = u
+
+    def get_u_func(self, sat_id=None):
+        """
+        Arguments:
+            sat_id: id of satellite to return output for.
+        """
+        def u(x, tau):
+            if tau <= self.end_tau:
+                # Calculate nearest u index (3xK)
+                u_len = self.u.shape[1]
+                u_index = int((tau/self.end_tau) * (u_len-1))
+                # TODO(rgg): add linear interpolation
+                return self.u[:, u_index]
+            else:
+                zero_thrust = np.array([0., 0., 0.])
+                return zero_thrust
+        return u
 
 class OptimalController(Controller):
     def __init__(self, sats=[], objective=None):

@@ -145,22 +145,35 @@ class Optimizer:
         Args:
             options: dictionary of options, may be the empty dict
         """
-        default = { 'min_mass':0.5,
-                    'u_lim':[0, 20],
+        default = { 'min_mass':0.1,
+                    'u_lim':[0, 5],
                     'r_lim':[0, 100],
                     'r_des':1,
-                    'eps_max': 1,
-                    'tf_max':5,
+                    'eps_max': 2,
+                    'tf_max':2,
                     'w_nu':100}
         merged = {**default, **options}
         return merged
 
     def get_solved_trajectory(self, s):
         """
-        Returns a trajectory x for satellite s: 7 x K
+        Returns a trajectory x for satellite s: 7 x k
         """
         x = np.asarray([[pyo.value(self.model.x[s, i, k]) for k in self.model.kIDX] for i in self.model.xIDX])
         return x
+
+    def get_solved_tf(self, s):
+        """
+        Returns the solved-for tf??
+        """
+        return pyo.value(self.model.tf)
+
+    def get_solved_u(self, s):
+        """
+        Returns a set of control inputs u for satellite s: 3 x k
+        """
+        u = np.asarray([[pyo.value(self.model.u[s, i, k]) for k in self.model.kIDX] for i in self.model.uIDX])
+        return u
 
     def solve_OPT(self, input_options={}):
         """
@@ -168,13 +181,13 @@ class Optimizer:
 
         Args:
             options: dictionary of options
-                min_mass = 0.5  # Mass limit, normalized
-                u_lim = [0.1, 2] # Thrust limit, normalized
-                r_lim = [0, 100] # Bound on radial distance (altitude), normalized
-                r_des = 10000 # Desired final orbital altitude, normalized
-                eps_max = 100 # Upper bound for slack variables epsilon, tunable
-                tf_max = 5 # Upper bound for final time, tunable
-                w_nu = 10000 # Penalty for virtual control
+                min_mass: mass limit, normalized
+                u_lim: thrust limit, normalized
+                r_lim: bound on radial distance (altitude), normalized
+                r_des: desired final orbital altitude, normalized
+                eps_max: upper bound for slack variables epsilon, tunable
+                tf_max: upper bound for final time, tunable
+                w_nu: penalty for virtual control
         """
         options = self.init_options(options=input_options)
 
@@ -222,7 +235,8 @@ class Optimizer:
         model.eps_vt = pyo.Var()
 
         # For minimum time problems
-        model.tf = pyo.Var()
+        model.tf = 2
+        # model.tf = pyo.Var()
 
         # Add linearized/discretized matrices to model
         model.A_k = A_k
@@ -378,7 +392,8 @@ class Optimizer:
         model.t_neg = pyo.Constraint(model.sIDX, model.xIDX, model.kIDX, rule = neg_t_rule)
 
         # tf needs to be positive but upper bound can be changed
-        model.tf_limits = pyo.Constraint(expr=(0, model.tf, options['tf_max']))
+        # TODO: bring back tf as decision variable
+        #model.tf_limits = pyo.Constraint(expr=(0, model.tf, options['tf_max']))
 
         # Bounds for the slack variable used in the final distance constraints
         model.eps_r_limits = pyo.Constraint(expr=(0, model.eps_r, options['eps_max']))

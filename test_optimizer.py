@@ -53,8 +53,21 @@ class TestOptimizer(unittest.TestCase):
         opt.solve_OPT(input_options=opt_options)
         print(f"model:\n {opt.model}")
         # Expect: a 3D view of the orbit
+        # Get 0th satellite as there is only one
         opt_trajectory = self.scale.redim_state(opt.get_solved_trajectory(0))
-        plot_orbit_3D(trajectories=[opt_trajectory], references=[self.scale.redim_state(x)], use_mayavi=True)
+
+        # Simulate nonlinear trajectory for more orbits using control outputs
+        tf_sim = 5
+        tf_u = opt.get_solved_tf(0)
+        print(f"tf_u: {tf_u}")
+        c_opt = SequenceController(u=opt.get_solved_u(0), tf_u=tf_u, tf_sim=tf_sim)
+        sim = Simulator(sats=[self.sat], controller=c_opt, scale=self.scale, base_res=base_res, include_drag = False, include_J2 = False)
+        sim.run(tf=tf_sim)
+        x_forward = sim.sim_data[self.sat.id] # Guess trajectory from simulation
+
+        plot_orbit_3D(trajectories=[opt_trajectory],
+                      references=[self.scale.redim_state(x_forward)],
+                      use_mayavi=True)
 
 if __name__ == '__main__':
     unittest.main()
