@@ -232,7 +232,7 @@ class Discretizer():
             return lambda_kn*u[:, k] + lambda_kp*u[:, k+1]
 
 
-    def discretize(self, f, x, u, tf, K):
+    def discretize(self, f, x, u, tf):
         """
         Discretizes and linearizes satellite dynamics
         with K temporal nodes from tau = [0, 1]
@@ -245,18 +245,22 @@ class Discretizer():
             K: integer, number of temporal nodes
 
         Returns:
-            A_k: List of length k, each element is a 7 x 7 matrix
-            B_kp: List of length k, each element is a 7 x 3 matrix
-            B_kn:  List of length k, each element is a 7 x 3 matrix
-            Sigma_k: List of length k, each element is a 7 vector
-            xi_k: List of length k, each element is a 7 vector
+            A_k: 3D numpy array of shape (K-1, 7, 7). Each slice is A_k at a time k
+            B_kp: 3D numpy array of shape (K-1, 7, 3).
+            B_kn: 3D numpy array of shape (K-1, 7, 3).
+            Sigma_k: 2D numpy array of shape (7, K-1).
+            xi_k: 2D numpy array of shape (7, K-1).
         """
+        # Infer K from reference trajectory
+        K = x.shape[1]
+        #
         tau = np.linspace(0, 1, K)
-        A_k = []
-        B_kp = []
-        B_kn = []
-        Sigma_k = []
-        xi_k = []
+        # Preallocate Output Arrays
+        A_k = np.zeros((K-1,7,7))
+        B_kp = np.zeros((K-1, 7, 3))
+        B_kn = np.zeros((K-1, 7, 3))
+        Sigma_k = np.zeros((7, K-1))
+        xi_k = np.zeros((7, K-1))
 
         if self.use_scipy_ZOH:
             # takes slightly longer
@@ -287,7 +291,7 @@ class Discretizer():
                                       t_eval=tau_points)
             # Extract final phi to get equation A_k = Phi(k+1)
             Phi_kp1 = np.reshape(sol.y[0:49, -1], (7, 7))
-            A_k.append(Phi_kp1)
+            A_k[k,:,:] = Phi_kp1 # Store in A_k array
 
             # Numerically integrate for Bk-, Bk+, Sigma, xi
             if self.use_uniform_steps:
@@ -322,11 +326,11 @@ class Discretizer():
             Sigma_integrand = np.column_stack([Phi_inv[i,:,:] @ Sigma_series[:,i] for i in range(0,int_points.size)])
             xi_integrand = np.column_stack([Phi_inv[i,:,:] @ xi_series[:,i] for i in range(0,int_points.size)])
             # Numerically integrate with trapz, along the right axis, and store
-            B_kp.append(Phi_kp1 @ np.trapz(y = Bp_integrand, x = int_points, axis = 0))
-            B_kn.append(Phi_kp1 @ np.trapz(y = Bn_integrand, x = int_points, axis = 0))
-            Sigma_k.append(Phi_kp1 @ np.trapz(y = Sigma_integrand, x = int_points, axis = 1))
-            xi_k.append(Phi_kp1 @ np.trapz(y = xi_integrand, x = int_points, axis = 1))
-        # Output list of linearization matrices
+            B_kp[k,:,:] = (Phi_kp1 @ np.trapz(y = Bp_integrand, x = int_points, axis = 0))
+            B_kn[k,:,:] = (Phi_kp1 @ np.trapz(y = Bn_integrand, x = int_points, axis = 0))
+            Sigma_k[:,k] = (Phi_kp1 @ np.trapz(y = Sigma_integrand, x = int_points, axis = 1))
+            xi_k[:,k] = (Phi_kp1 @ np.trapz(y = xi_integrand, x = int_points, axis = 1))
+        # Output arrays of linearization matrices
         return A_k, B_kp, B_kn, Sigma_k, xi_k
 
     

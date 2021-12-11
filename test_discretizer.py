@@ -45,7 +45,7 @@ class TestDiscretizer(unittest.TestCase):
         tf = 1
         K = 2
         f = Simulator.satellite_dynamics
-        A_k, B_kp, B_kn, Sigma_k, xi_k = d.discretize(f, x, u, tf, K)
+        A_k, B_kp, B_kn, Sigma_k, xi_k = d.discretize(f, x, u, tf)
         if show_output:
             print(f"A_k = {A_k}")
             print(f"B_kp = {B_kp}")
@@ -71,12 +71,12 @@ class TestDiscretizer(unittest.TestCase):
         tf = 0.1
         K = 3
         f = Simulator.satellite_dynamics
-        A_k, B_kp, B_kn, Sigma_k, xi_k = d.discretize(f, x, u, tf, K)
+        A_k, B_kp, B_kn, Sigma_k, xi_k = d.discretize(f, x, u, tf)
         # Perform the forward simulation
         x_k = x[:,0]
         x_discrete = [x_k]
         for k in range(5):
-            x_k1 = A_k[0] @ x_k + B_kn[0] @ T_init + B_kp[0] @ T_init + Sigma_k[0]*tf + xi_k[0]
+            x_k1 = A_k[0,:,:] @ x_k + B_kn[0,:,:] @ T_init + B_kp[0,:,:] @ T_init + Sigma_k[:,0]*tf + xi_k[:,0]
             x_discrete.append(x_k1)
             x_k = x_k1
         # Construct numpy array from list of rows and re-dimensionalize
@@ -102,13 +102,13 @@ class TestDiscretizer(unittest.TestCase):
         print(f"final mass: {x[-1, -1]}")
         u = np.tile(T_init, (3, K)) # Inputs constant for this example
         f = Simulator.satellite_dynamics
-        A_k, B_kp, B_kn, Sigma_k, xi_k = d.discretize(f, x, u, tf, K)
+        A_k, B_kp, B_kn, Sigma_k, xi_k = d.discretize(f, x, u, tf)
         # Perform the forward simulation
         x_k = x[:,0]
         x_discrete = [x_k]
         print("K: {K}")
         for k in range(K-1):
-            x_k1 = A_k[k] @ x_k + B_kn[k] @ u[:,k] + B_kp[k] @ u[:,k+1] + Sigma_k[k]*tf + xi_k[k]
+            x_k1 = A_k[k,:,:] @ x_k + B_kn[k,:,:] @ u[:,k] + B_kp[k,:,:] @ u[:,k+1] + Sigma_k[:,k]*tf + xi_k[:,k]
             x_discrete.append(x_k1)
             x_k = x_k1
         # Construct numpy array from list of rows and re-dimensionalize
@@ -135,13 +135,13 @@ class TestDiscretizer(unittest.TestCase):
         print(f"final mass: {x[-1, -1]}")
         u = d.extract_uk(x, sim.sim_time[self.sat.id], c) # Guess inputs
         f = Simulator.satellite_dynamics
-        A_k, B_kp, B_kn, Sigma_k, xi_k = d.discretize(f, x, u, tf, K)
+        A_k, B_kp, B_kn, Sigma_k, xi_k = d.discretize(f, x, u, tf)
         # Perform the forward simulation
         x_k = x[:,0] # Start with initial conditions
         x_discrete = [x_k]
         print("K: {K}")
         for k in range(K-1):
-            x_k1 = A_k[k] @ x_k + B_kn[k] @ u[:,k] + B_kp[k] @ u[:,k+1] + Sigma_k[k]*tf + xi_k[k]
+            x_k1 = A_k[k,:,:] @ x_k + B_kn[k,:,:] @ u[:,k] + B_kp[k,:,:] @ u[:,k+1] + Sigma_k[:,k]*tf + xi_k[:,k]
             x_discrete.append(x_k1)
             x_k = x_k1
         # Construct numpy array from list of rows and re-dimensionalize
