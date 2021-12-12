@@ -43,13 +43,14 @@ class Optimizer:
                         [x[2], 0, -x[0]],
                         [-x[1], x[0], 0]])
 
-    def plot_normalized_thrust(u, T0):
-        u = u/T0
+    @staticmethod
+    def plot_normalized_thrust(u):
+        print(f"u shape\n:{u.shape}")
         fig, ax = plt.subplots()
-        time = np.linspace(0,1,len(u))
-        ax.plot(time, u[:,0], label='x')
-        ax.plot(time, u[:,1], label='y')
-        ax.plot(time, u[:,2], label='z')
+        time = np.linspace(0,1,u.shape[1])
+        ax.plot(time, u[0,:], label='x')
+        ax.plot(time, u[1,:], label='y')
+        ax.plot(time, u[2,:], label='z')
         ax.set_title('Normalized Thrust Commands')
         plt.show()
 
@@ -147,11 +148,15 @@ class Optimizer:
         """
         default = { 'min_mass':0.1,
                     'u_lim':[0, 5],
-                    'r_lim':[0, 100],
+                    'r_lim':[0.99, 5],
                     'r_des':1,
-                    'eps_max': 2,
-                    'tf_max':2,
-                    'w_nu':100}
+                    'eps_r': 0.01,
+                    'eps_vr': 0.00001,
+                    'eps_vn': 0.00001,
+                    'eps_vt': 0.00001,
+                    'tf_max':5,
+                    'w_nu':100000,
+                    'w_tr':0.0002}
         merged = {**default, **options}
         return merged
 
@@ -188,6 +193,7 @@ class Optimizer:
                 eps_max: upper bound for slack variables epsilon, tunable
                 tf_max: upper bound for final time, tunable
                 w_nu: penalty for virtual control
+                w_tr: penalty for trust region
         """
         options = self.init_options(options=input_options)
 
@@ -227,16 +233,21 @@ class Optimizer:
         model.nu = pyo.Var(model.sIDX, model.xIDX, model.kIDX) # Virtual controls
         model.t = pyo.Var(model.sIDX, model.xIDX, model.kIDX) # Slack variable for L1 minimization of nu
 
+
         # Slack for final radial height
-        model.eps_r = pyo.Var()
+        #model.eps_r = pyo.Var()
         # Slack Variables for Circularization Constraints
-        model.eps_vr = pyo.Var()
-        model.eps_vn = pyo.Var()
-        model.eps_vt = pyo.Var()
+        #model.eps_vr = pyo.Var()
+        #model.eps_vn = pyo.Var()
+        #model.eps_vt = pyo.Var()
+        model.eps_r = options['eps_r']
+        model.eps_vr = options['eps_vr']
+        model.eps_vn = options['eps_vn']
+        model.eps_vt = options['eps_vt']
 
         # For minimum time problems
-        model.tf = 2
-        # model.tf = pyo.Var()
+        #model.tf = 2
+        model.tf = pyo.Var()
 
         # Add linearized/discretized matrices to model
         model.A_k = A_k
@@ -250,7 +261,29 @@ class Optimizer:
 
         # Objective: Minimize Time For Orbit Raising and Circularization
         def minimize_time(model):
-            cost = (model.tf + options['w_nu']*sum(model.t[s,i,k] for k in model.kIDX for i in model.xIDX for s in model.sIDX))
+            J_obj = 0.0
+            for s in model.sIDX: # Min control input
+                J_obj_s = 0.0
+                for k in model.kIDX:
+                    for i in model.uIDX:
+                        J_obj_s += model.u[s, i, k]**2
+                J_obj += J_obj_s
+
+            #J_obj = sum(-1*model.x[s, 6, model.K-1] + model.x[s, 6, 0] for s in model.sIDX) # Min fuel
+            #J_obj = model.tf # Min time
+            J_virtual = options['w_nu']*sum(model.t[s,i,k] for k in model.kIDX for i in model.xIDX for s in model.sIDX)
+
+            J_trust = 0
+            for s in model.sIDX:
+                J_trust_s = 0
+                for k in model.kIDX:
+                    for i in model.xIDX:
+                        J_trust_s += (model.x[s,i,k] - self.x_bar[s][i,k])**2
+                    for i in model.uIDX:
+                        J_trust_s += (model.u[s,i,k] - self.u_bar[s][i,k])**2
+                J_trust_s += (model.tf - self.tf)**2
+                J_trust += options['w_tr']*J_trust_s
+            cost = J_obj + J_virtual + J_trust
             return cost
 
         def dynamics_const_rule(model, s, i, k):
@@ -277,7 +310,7 @@ class Optimizer:
             return model.u[s, i, 0] == self.u_bar[s][i,0]
 
         def final_mass_rule(model, s):
-            return model.x[s, i, model.K-1] >= options['min_mass']
+            return model.x[s, 6, model.K-1] >= options['min_mass']
 
         # Set cost function
         model.cost = pyo.Objective(rule=minimize_time, sense=pyo.minimize)
@@ -338,7 +371,7 @@ class Optimizer:
                         + sum(model.cons_terms['DrVr_DvVr'][s][i] * model.x[s,i,model.K-1] for i in range(6))
                         - model.cons_terms['DrVr_DvVr_bar'][s])
                     >= -1*model.eps_vr)
-
+        # TODO: Investigate
         model.vr_max = pyo.Constraint(model.sIDX, rule=max_radial_vel_rule)
         model.vr_min = pyo.Constraint(model.sIDX, rule=min_radial_vel_rule)
 
@@ -393,15 +426,15 @@ class Optimizer:
 
         # tf needs to be positive but upper bound can be changed
         # TODO: bring back tf as decision variable
-        #model.tf_limits = pyo.Constraint(expr=(0, model.tf, options['tf_max']))
+        model.tf_limits = pyo.Constraint(expr=(0, model.tf, options['tf_max']))
 
         # Bounds for the slack variable used in the final distance constraints
-        model.eps_r_limits = pyo.Constraint(expr=(0, model.eps_r, options['eps_max']))
+        #model.eps_r_limits = pyo.Constraint(expr=(0, model.eps_r, options['eps_max']))
 
         # Bounds for the slack variables that are used in the circularization constraints
-        model.eps_vr_limits = pyo.Constraint(expr=(0, model.eps_vr, options['eps_max']))
-        model.eps_vn_limits = pyo.Constraint(expr=(0, model.eps_vn, options['eps_max']))
-        model.eps_vt_limits = pyo.Constraint(expr=(0, model.eps_vt, options['eps_max']))
+        #model.eps_vr_limits = pyo.Constraint(expr=(0, model.eps_vr, options['eps_max']))
+        #model.eps_vn_limits = pyo.Constraint(expr=(0, model.eps_vn, options['eps_max']))
+        #model.eps_vt_limits = pyo.Constraint(expr=(0, model.eps_vt, options['eps_max']))
 
         # Solve model
         model.dual = pyo.Suffix(direction=pyo.Suffix.EXPORT)
