@@ -2,6 +2,85 @@ import numpy as np
 from scipy import integrate, interpolate
 from simulator import Simulator
 import logging
+from functools import partial
+import multiprocessing as mp
+
+
+def get_matrices(options,funcs, tf, tau, x, k):
+    """
+    Options:
+        'use_uniform_steps'
+        'integrator_steps'
+        'ivp_max_step'
+        'ivp_solver'
+    Funcs:
+        'dPhi_gen'
+        'f'
+        'u_func'
+        'B_func'
+        'Sigma_func'
+        'xi_func'
+    """
+    # Ideally make the for loop below parallelized
+    # Extract values
+    tau_k = tau[k]  # Left bound of temporal node
+    tau_kp1 = tau[k+1]  # Right bound of temporal node
+    if options['use_uniform_steps']:
+        tau_points = np.linspace(tau_k, tau_kp1, options['integrator_steps']) # Set times for which solve_ivp should output values
+    else:
+        tau_points = None # No pre-determined evaluation times, let solve_ivp() decide
+    x_k = x[:, k]  # Get reference state for current node
+    # Solve for the state transition matrix Phi, evaluated at tau_points
+    # Define initial value for integrating
+    y0 = np.concatenate([np.eye(7).flatten(), x_k])
+    # Numerically integrate to solve for the state transition matrix Phi
+    dPhi = funcs['dPhi_gen']()
+    sol = integrate.solve_ivp(dPhi, [tau_k, tau_kp1], y0,
+                                args=(funcs['f'], funcs['u_func'], tf),
+                                max_step=options['ivp_max_step'],
+                                method=options['ivp_solver'],
+                                t_eval=tau_points)
+    # Extract final phi to get equation A_k = Phi(k+1)
+    Phi_kp1 = np.reshape(sol.y[0:49, -1], (7, 7))
+    A_k = Phi_kp1 # Store in A_k array
+
+    # Numerically integrate for Bk-, Bk+, Sigma, xi
+    if options['use_uniform_steps']:
+        int_points = tau_points
+    else:
+        int_points = sol.t
+    # Extract a series of Phi matrices
+    Phi_series = np.reshape(sol.y[0:49,:].T, (int_points.size, 7,7))
+    # Extract state vectors
+    x_series = sol.y[49:56,:]
+    # Preallocate arrays
+    B_series = np.zeros((int_points.size, 7,3))
+    Sigma_series = np.zeros((7,int_points.size))
+    xi_series = np.zeros((7, int_points.size))
+    # Calculate lambda terms (for use in B integrand)
+    lambda_kn = (tau_kp1 - int_points)/(tau_kp1 - tau_k)
+    lambda_kp = (int_points - tau_k)/(tau_kp1 - tau_k)
+    # Evaluate B, Sigma, and xi linearization functions
+    for i, t in enumerate(int_points):
+        # Call u_func with None for states since they aren't used
+        B_series[i,:,:] = funcs['B_func'](x_series[:,i],funcs['u_func'](None, t),tf)
+        Sigma_series[:,i] = funcs['Sigma_func'](funcs['f'], x_series[:,i], funcs['u_func'], tau=t)
+        xi_series[:,i] = funcs['xi_func'](funcs['f'], x_series[:,i], funcs['u_func'](None, t),tf)
+
+    Phi_inv = np.linalg.inv(Phi_series) # Phi must be invertible
+    # Compute B integrands, size is n x 3 x 3
+    Bn_integrand = Phi_inv @ (B_series * lambda_kn[:,None,None])
+    Bp_integrand = Phi_inv @ (B_series * lambda_kp[:,None,None])
+    # Compute Sigma, xi integrands, size is n x 7
+    Sigma_integrand = np.column_stack([Phi_inv[i,:,:] @ Sigma_series[:,i] for i in range(0,int_points.size)])
+    xi_integrand = np.column_stack([Phi_inv[i,:,:] @ xi_series[:,i] for i in range(0,int_points.size)])
+    # Numerically integrate with trapz, along the right axis, and store
+    B_kp = (Phi_kp1 @ np.trapz(y = Bp_integrand, x = int_points, axis = 0))
+    B_kn = (Phi_kp1 @ np.trapz(y = Bn_integrand, x = int_points, axis = 0))
+    Sigma_k = (Phi_kp1 @ np.trapz(y = Sigma_integrand, x = int_points, axis = 1))
+    xi_k = (Phi_kp1 @ np.trapz(y = xi_integrand, x = int_points, axis = 1))
+
+    return [A_k, B_kp, B_kn, Sigma_k, xi_k]
 
 
 class Discretizer():
@@ -31,6 +110,10 @@ class Discretizer():
 
         # Set up logging
         logging.basicConfig(level=logging.WARNING)
+
+        # Store x or u as needed
+        self.__u = None
+        self.__tau = None
 
 
     def A_func(self, x, u, tf):
@@ -232,6 +315,22 @@ class Discretizer():
             return lambda_kn*u[:, k] + lambda_kp*u[:, k+1]
 
 
+    def u_func(self, x, t):
+        """
+        u_func of standard form
+        Args:
+            x: state vector at time t
+            t: time
+        Returns:
+            u: (3,) thrust vector
+        """
+        if self.use_scipy_ZOH:
+            # takes slightly longer
+            return interpolate.interp1d(self.__tau, self.__u, kind='linear', axis = 1)(t)
+        else:
+            return self.u_FOH(t, self.__u)
+
+
     def discretize(self, f, x, u, tf):
         """
         Discretizes and linearizes satellite dynamics
@@ -255,6 +354,8 @@ class Discretizer():
         K = x.shape[1]
         #
         tau = np.linspace(0, 1, K)
+        self.__tau = tau
+        self.__u = u
         # Preallocate Output Arrays
         A_k = np.zeros((K-1,7,7))
         B_kp = np.zeros((K-1, 7, 3))
@@ -262,75 +363,30 @@ class Discretizer():
         Sigma_k = np.zeros((7, K-1))
         xi_k = np.zeros((7, K-1))
 
-        if self.use_scipy_ZOH:
-            # takes slightly longer
-            u_func = lambda y, t: interpolate.interp1d(tau, u, kind='linear', axis = 1)(t)
-        else:
-            u_func = lambda y, tau: self.u_FOH(tau, u)
-
-        # Ideally make the for loop below parallelized
-        for k in range(0, K-1):
-            # Extract values
-            tau_k = tau[k]  # Left bound of temporal node
-            tau_kp1 = tau[k+1]  # Right bound of temporal node
-            if self.use_uniform_steps:
-                tau_points = np.linspace(tau_k, tau_kp1, self.integrator_steps) # Set times for which solve_ivp should output values
-            else:
-                tau_points = None # No pre-determined evaluation times, let solve_ivp() decide
-            x_k = x[:, k]  # Get reference state for current node
-            logging.debug(f"x_k reference state: {x_k}")
-            # Solve for the state transition matrix Phi, evaluated at tau_points
-            # Define initial value for integrating
-            y0 = np.concatenate([np.eye(7).flatten(), x_k])
-            # Numerically integrate to solve for the state transition matrix Phi
-            dPhi = self.dPhi_gen()
-            sol = integrate.solve_ivp(dPhi, [tau_k, tau_kp1], y0,
-                                      args=(f, u_func, tf),
-                                      max_step=self.ivp_max_step,
-                                      method=self.ivp_solver,
-                                      t_eval=tau_points)
-            # Extract final phi to get equation A_k = Phi(k+1)
-            Phi_kp1 = np.reshape(sol.y[0:49, -1], (7, 7))
-            A_k[k,:,:] = Phi_kp1 # Store in A_k array
-
-            # Numerically integrate for Bk-, Bk+, Sigma, xi
-            if self.use_uniform_steps:
-                int_points = tau_points
-            else:
-                int_points = sol.t
-            # Extract a series of Phi matrices
-            Phi_series = np.reshape(sol.y[0:49,:].T, (int_points.size, 7,7))
-            # Extract state vectors
-            x_series = sol.y[49:56,:]
-            # Preallocate arrays
-            B_series = np.zeros((int_points.size, 7,3))
-            Sigma_series = np.zeros((7,int_points.size))
-            xi_series = np.zeros((7, int_points.size))
-            # Calculate lambda terms (for use in B integrand)
-            lambda_kn = (tau_kp1 - int_points)/(tau_kp1 - tau_k)
-            lambda_kp = (int_points - tau_k)/(tau_kp1 - tau_k)
-            # Evaluate B, Sigma, and xi linearization functions
-            for i, t in enumerate(int_points):
-                # Call u_func with None for states since they aren't used
-                B_series[i,:,:] = self.B_func(x_series[:,i],u_func(None, t),tf)
-                Sigma_series[:,i] = self.Sigma_func(f, x_series[:,i], u_func, tau=t)
-                xi_series[:,i] = self.xi_func(f, x_series[:,i], u_func(None, t),tf)
-
-            logging.info(f"Last phi series: {Phi_series[-1,:,:]}")
-            logging.info(f"Integration points: {int_points}")
-            Phi_inv = np.linalg.inv(Phi_series) # Phi must be invertible
-            # Compute B integrands, size is n x 3 x 3
-            Bn_integrand = Phi_inv @ (B_series * lambda_kn[:,None,None])
-            Bp_integrand = Phi_inv @ (B_series * lambda_kp[:,None,None])
-            # Compute Sigma, xi integrands, size is n x 7
-            Sigma_integrand = np.column_stack([Phi_inv[i,:,:] @ Sigma_series[:,i] for i in range(0,int_points.size)])
-            xi_integrand = np.column_stack([Phi_inv[i,:,:] @ xi_series[:,i] for i in range(0,int_points.size)])
-            # Numerically integrate with trapz, along the right axis, and store
-            B_kp[k,:,:] = (Phi_kp1 @ np.trapz(y = Bp_integrand, x = int_points, axis = 0))
-            B_kn[k,:,:] = (Phi_kp1 @ np.trapz(y = Bn_integrand, x = int_points, axis = 0))
-            Sigma_k[:,k] = (Phi_kp1 @ np.trapz(y = Sigma_integrand, x = int_points, axis = 1))
-            xi_k[:,k] = (Phi_kp1 @ np.trapz(y = xi_integrand, x = int_points, axis = 1))
         # Output arrays of linearization matrices
+        options={'use_uniform_steps':self.use_uniform_steps,
+                'integrator_steps':self.integrator_steps,
+                'ivp_max_step':self.ivp_max_step,
+                'ivp_solver':self.ivp_solver}
+        funcs={'dPhi_gen':self.dPhi_gen,
+                'f':f, 'u_func':self.u_func, 'B_func': self.B_func, 'Sigma_func': self.Sigma_func,
+                'xi_func': self.xi_func}
+
+        g = partial(get_matrices,options, funcs, tf, tau, x)
+
+        pool = mp.Pool(mp.cpu_count())
+        result = pool.map(g, range(0, K-1))
+        pool.close()
+        pool.join()
+
+        # Concatenate pool results into expected values
+        for i, r in enumerate(result):
+            A_k[i,:,:] = r[0]
+            B_kp[i,:,:] = r[1]
+            B_kn[i,:,:] = r[2]
+            Sigma_k[:,i] = r[3]
+            xi_k[:,i] = r[4]
+
         return A_k, B_kp, B_kn, Sigma_k, xi_k
 
 
