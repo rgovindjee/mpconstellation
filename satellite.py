@@ -23,7 +23,6 @@ class Satellite:
         self.mass = mass
         self.id = uuid.uuid4().int  # Assign a unique numeric identifier to the satellite
 
-
     def get_state_vector(self):
         """
         Returns:
@@ -31,6 +30,13 @@ class Satellite:
         """
         return np.concatenate([self.position, self.velocity, np.array([self.mass])])
 
+    def update_state_vector(self, state):
+        """
+        Takes in a (7, ) state vector and updates the class properties accordingly
+        """
+        self.position = state[0:3]
+        self.velocity = state[3:6]
+        self.mass = state[6]
 
     def __str__(self):
         return (

@@ -28,8 +28,8 @@ class Simulator:
         """Runs a simulation for all satellites.
         Args:
             tf: rough number of orbits
-        Returns: 
-            A dictionary with satellite IDs as keys and 7 x T arrays of 
+        Returns:
+            A dictionary with satellite IDs as keys and 7 x T arrays of
             state vectors, non-dimensionalzed (scaled) by simulator scale.
         """
         # Set resolution proportional to number of orbits
@@ -44,6 +44,33 @@ class Simulator:
         self.sim_data = state_dict
         self.sim_time = time_dict
         return self.sim_data, self.sim_time
+
+    def run_segment(self, tf=1):
+        """
+        Runs a simulation segment and saves state info out to satellite objects
+        """
+        # Set resolution proportional to number of orbits
+        self.eval_points = int(self.base_res*tf)
+        state_dict = {}
+        time_dict = {}
+        for sat in self.sats:
+            u_func = self.controller.get_u_func()
+            sol = self.get_trajectory_ODE(sat, tf, u_func)
+            # Update satellite state with last state from simulation
+            last_state = self.scale.redim_state(sol.y[:, -1])
+            sat.update_state_vector(last_state)
+            # Append state info to results. Assume if a satellite has state info, it has time info
+            # Start time values at last final time plus a small incremement to prevent overlap at t=0
+            # TODO(rgg): clean this up for cases where satellites have different start times
+            if sat.id in self.sim_data and sat.id in self.sim_time:
+                time = sol.t + self.sim_time.get(sat.id, [0])[-1]*tf + 0.0000001
+                # Concatenate; sim_data is (7, T), sim_time is (T, )
+                self.sim_data[sat.id] = np.concatenate([self.sim_data[sat.id], sol.y], axis=1)
+                self.sim_time[sat.id] = np.concatenate([self.sim_time[sat.id], time])
+            else:
+                self.sim_data[sat.id] = sol.y
+                self.sim_time[sat.id] = sol.t
+        return
 
     @staticmethod
     def get_atmo_density(r, r0):
@@ -115,7 +142,7 @@ class Simulator:
             sat: Satellite object
             ts: timestep in seconds
             tf: (roughly) number of orbits, i.e. tf = 1 is 1 orbit.
-            u_func: u(x, tau) takes in state vector x and a normalized time 
+            u_func: u(x, tau) takes in state vector x and a normalized time
                     tau and outputs a normalized 3x1 thrust vector.
         Returns:
             state: 7 x n array of state vectors
