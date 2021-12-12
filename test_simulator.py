@@ -70,6 +70,25 @@ class TestSimulator(unittest.TestCase):
         sim.run_segment(tf=2)  # Run for 2 orbits
         print(f"Expected time shape: ({4*res},)")
         print(f"Got: {sim.sim_time[sat.id].shape}")
+        # Expect: a 3D view of orbits for all sats
+        #plot_orbit_3D([scale.redim_state(sim.sim_data[sats[i].id]) for i in range(len(sats))])
+
+    def test_run_segments(self):
+        print("Testing multi-segment wrapper function with two satellites")
+        r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
+        v0 = np.array([4.6921, 4.9848, -3.2752]) * 1000 # m/s
+        m0 = 12200  # kg
+        sat = Satellite(r0, v0, m0)
+        sat2 = Satellite(r0, v0*1.1, m0)
+        sats = [sat, sat2]
+        res = 20
+        # Create satellite scale object
+        scale = SatelliteScale(sat=sat)
+        sim = Simulator(sats=sats, scale=scale, base_res=res)  # Use default controller
+        tf = 4
+        sim.run_segments(tf=tf, num_segments=8)
+        print(f"Expected time shape: ({tf*res},)")
+        print(f"Got: {sim.sim_time[sat.id].shape}")
 
         # Expect: a 3D view of orbits for all sats
         plot_orbit_3D([scale.redim_state(sim.sim_data[sats[i].id]) for i in range(len(sats))])

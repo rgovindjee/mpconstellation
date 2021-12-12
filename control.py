@@ -23,6 +23,12 @@ class Controller:
         u = lambda x, tau: zero_thrust
         return u
 
+    def update(self):
+        """
+        Recalculate according to current satellite states if needed
+        """
+        pass
+
 class ConstantThrustController(Controller):
     def __init__(self, sats=[], thrust=np.array([1., 1., 1.])):
         """
@@ -107,12 +113,26 @@ class SequenceController(Controller):
         return u
 
 class OptimalController(Controller):
-    def __init__(self, sats=[], objective=None):
+    def __init__(self, sats=[], objective=None, tf_horizon=1):
         """
         Arguments:
             sats: list of Satellite objects
             thrust: 3-element array of thrust in x, y, z direction
             objective: desired final arrangement of satellites?
+            tf_horizon: horizon over which to optimize, in tf
         """
         super().__init__(sats)
-    # TODO(rgg, cm): flesh this out with optimization formulation
+        self.u = np.zeros(3, 1)
+        self.horizon = tf_horizon
+
+    def update(self):
+        """
+        Uses the current state of the satellites to calculate a sequence of control inputs over the horizon
+        """
+        pass
+
+    def generate_ref_trajectory(self):
+        pass
+
+    def get_u_func(self):
+        pass

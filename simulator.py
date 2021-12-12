@@ -54,6 +54,8 @@ class Simulator:
         state_dict = {}
         time_dict = {}
         for sat in self.sats:
+            # Let controller re-plan, if applicable
+            self.controller.update()
             u_func = self.controller.get_u_func()
             sol = self.get_trajectory_ODE(sat, tf, u_func)
             # Update satellite state with last state from simulation
@@ -71,6 +73,19 @@ class Simulator:
                 self.sim_data[sat.id] = sol.y
                 self.sim_time[sat.id] = sol.t
         return
+
+    def run_segments(self, tf=1, num_segments=1):
+        """
+        Run a simulation for tf total time in the specified number of intervals.
+        Controller re-plans between each interval if applicable.
+        Args:
+            tf: total simulation time for each satellite
+            num_segments: number of intervals to split tf into
+        """
+        # TODO(rgg): scale the tfs so satellites orbit for the same time?
+        tf_step = tf / float(num_segments)
+        for n in range(num_segments):
+            self.run_segment(tf=tf_step)
 
     @staticmethod
     def get_atmo_density(r, r0):
