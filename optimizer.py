@@ -338,6 +338,7 @@ class Optimizer:
         def initial_state_rule(model, s, i):
             return model.x[s, i, 0] == self.x_bar[s][i,0]
 
+        # Rule is redundant, should not constrain initial inputs!
         #def initial_thrust_rule(model, s, i):
         #    return model.u[s, i, 0] == self.u_bar[s][i,0]
 
@@ -348,7 +349,7 @@ class Optimizer:
         model.cost = pyo.Objective(rule=objective_func, sense=pyo.minimize)
         # Initialize States
         model.init_states = pyo.Constraint(model.sIDX, model.xIDX, rule=initial_state_rule)
-        # Initialize Inputs
+        # Initialize Inputs - Should not constrain initial inputs!
         #model.init_inputs = pyo.Constraint(model.sIDX, model.uIDX, rule=initial_thrust_rule)
         # Linearized Dynamics Constraints
         model.dynamics = pyo.Constraint(model.sIDX, model.xIDX, model.kIDX, rule=dynamics_const_rule)
