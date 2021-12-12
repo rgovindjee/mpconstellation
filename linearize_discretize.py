@@ -84,7 +84,7 @@ def get_matrices(options,funcs, tf, tau, x, k):
 
 
 class Discretizer():
-    def __init__(self, const, rho_func=Simulator.get_atmo_density, drho_func=None, include_drag=False, include_J2=False, use_scipy_ZOH = False):
+    def __init__(self, const, rho_func=Simulator.get_atmo_density, drho_func=None, include_drag=False, include_J2=False, use_scipy_ZOH=False):
         """
         Args:
             const: Constants object, with variables MU, R_E, J2, S, G0, ISP, CD
@@ -97,7 +97,7 @@ class Discretizer():
         self.use_scipy_ZOH = use_scipy_ZOH
 
         # TODO: Chase to look at rho_func and drho_func
-        self.rho_func = rho_func # Not necessarily the right function
+        self.rho_func = rho_func  # Not necessarily the right function
         self.drho_func = drho_func
 
         # ODE solver parameters
@@ -106,7 +106,8 @@ class Discretizer():
 
         # Numerical integration parameters
         self.integrator_steps = 101
-        self.use_uniform_steps = False # If False, integration ignores self.integrator_steps and uses non-uniform steps from solve_ivp()
+        # If False, integration ignores self.integrator_steps and uses non-uniform steps from solve_ivp()
+        self.use_uniform_steps = False
 
         # Set up logging
         logging.basicConfig(level=logging.WARNING)
@@ -163,9 +164,10 @@ class Discretizer():
             # Get atmospheric densities
             rho = self.rho_func(x[0:3])
             drho = self.drho_func(x[0:3])
-            Dr_aD = ((-self.const.CD*self.const.S/(2*m))*v_norm*v)@(drho * r.T/r_norm)
+            Dr_aD = ((-self.const.CD*self.const.S/(2*m))
+                     * v_norm*v)@(drho * r.T/r_norm)
             Dv_aD = ((-rho*self.const.CD*self.const.S)/(2*m))*(v_norm*np.eye(3)
-                    + (1/(v_norm))*(v @ v.T))
+                                                               + (1/(v_norm))*(v @ v.T))
             Dm_aD = ((rho*self.const.CD*self.const.S)/(2*m**2))*v_norm*v
         else:
             Dr_aD = np.zeros((3, 3))
@@ -175,13 +177,13 @@ class Discretizer():
         Dm_aT = -T/(m**2)
         # Build Dxf
         Dxf = np.vstack([np.hstack([np.zeros((3, 3)), np.eye(3), np.zeros((3, 1))]),
-                         np.hstack([Dr_ag + Dr_aJ2 + Dr_aD, Dv_aD, Dm_aD + Dm_aT]),
+                         np.hstack([Dr_ag + Dr_aJ2 + Dr_aD,
+                                   Dv_aD, Dm_aD + Dm_aT]),
                          np.zeros((1, 7))])
 
         # Calculate and output A
         A = tf*Dxf
         return A
-
 
     def B_func(self, x, u, tf):
         """
@@ -214,7 +216,6 @@ class Discretizer():
         B = tf*Duf
         return B
 
-
     def xi_func(self, f, x, u, tf):
         """
         Linearize satellite dynamics about reference x and reference u, gives xi
@@ -235,7 +236,6 @@ class Discretizer():
         xi = -((A @ x) + (B @ u))
         return xi
 
-
     def Sigma_func(self, f, x, u_func, tau):
         """
         Linearize satellite dynamics about reference x and reference u, gives Sigma
@@ -249,10 +249,10 @@ class Discretizer():
             Sigma: 7 vector
         """
         # Compute Sigma (pg 22)
-        tf = 1 # tf must equal 1, Sigma is the non-normalized dynamics
-        Sigma = f(tau, x, u_func, tf, self.const, include_J2 = self.include_J2, include_drag = self.include_drag)
+        tf = 1  # tf must equal 1, Sigma is the non-normalized dynamics
+        Sigma = f(tau, x, u_func, tf, self.const,
+                  include_J2=self.include_J2, include_drag=self.include_drag)
         return Sigma
-
 
     def dPhi_gen(self):
         """
@@ -284,12 +284,12 @@ class Discretizer():
             Phi_dot = A @ Phi
             # TODO: Investigate if tf is supposed to be in f
             # RESOLVED: (Jason) I believe tf is supposed to be in f
-            x_dot = f(tau, x, u_func, tf, self.const, include_J2 = self.include_J2, include_drag = self.include_drag)
+            x_dot = f(tau, x, u_func, tf, self.const,
+                      include_J2=self.include_J2, include_drag=self.include_drag)
             # Flatten phi and store back into new vector
             y_dot = np.concatenate([Phi_dot.flatten(), x_dot])
             return y_dot
         return dPhi
-
 
     def u_FOH(self, tau, u):
         """
@@ -303,13 +303,13 @@ class Discretizer():
             Interpolated u at time tau, u(tau)
         """
         if tau == 1:
-            return u[:,-1]
+            return u[:, -1]
         else:
-            K = u.shape[1] # Number of points for discretization
-            dtau = 1/(K-1) # Length of each interval in tau units
-            k = int(tau // dtau) # lower index of interval to interpolate in
-            tau_k = k/(K-1) # left bound of interval
-            tau_kp1 = (k+1)/(K-1) # right bound of interval
+            K = u.shape[1]  # Number of points for discretization
+            dtau = 1/(K-1)  # Length of each interval in tau units
+            k = int(tau // dtau)  # lower index of interval to interpolate in
+            tau_k = k/(K-1)  # left bound of interval
+            tau_kp1 = (k+1)/(K-1)  # right bound of interval
             lambda_kn = (tau_kp1 - tau)/(tau_kp1 - tau_k)
             lambda_kp = (tau - tau_k)/(tau_kp1 - tau_k)
             return lambda_kn*u[:, k] + lambda_kp*u[:, k+1]
@@ -357,11 +357,12 @@ class Discretizer():
         self.__tau = tau
         self.__u = u
         # Preallocate Output Arrays
-        A_k = np.zeros((K-1,7,7))
+        A_k = np.zeros((K-1, 7, 7))
         B_kp = np.zeros((K-1, 7, 3))
         B_kn = np.zeros((K-1, 7, 3))
         Sigma_k = np.zeros((7, K-1))
         xi_k = np.zeros((7, K-1))
+
 
         # Output arrays of linearization matrices
         options={'use_uniform_steps':self.use_uniform_steps,
@@ -389,7 +390,6 @@ class Discretizer():
 
         return A_k, B_kp, B_kn, Sigma_k, xi_k
 
-
     @staticmethod
     def extract_uk(x_k, tau_k, controller):
         """Utility function to extract u_k from x_k and tau_k
@@ -406,6 +406,6 @@ class Discretizer():
         """
         u_func = controller.get_u_func()
         u_k = []
-        for i in range(x_k.shape[1]): # Iterate through each column
-            u_k.append(u_func(x_k[:,i],tau_k[i]))
+        for i in range(x_k.shape[1]):  # Iterate through each column
+            u_k.append(u_func(x_k[:, i], tau_k[i]))
         return np.column_stack(u_k)

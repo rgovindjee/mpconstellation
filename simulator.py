@@ -131,7 +131,7 @@ class Simulator:
 
         # Solve IVP:
         sample_times = np.linspace(0, 1, self.eval_points) # Increase the number of samples as needed
-        max_time_step = 0.001 # Adjust as needed for ODE accuracy
+        max_time_step = 0.0001 # Adjust as needed for ODE accuracy
         sol = integrate.solve_ivp(Simulator.satellite_dynamics, [0, 1], y0, args=(u_func, tf, const, self.include_drag, self.include_J2), t_eval=sample_times, max_step=max_time_step)
         # Output solution from solve_ivp
         return sol
