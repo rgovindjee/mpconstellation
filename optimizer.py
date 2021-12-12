@@ -44,15 +44,37 @@ class Optimizer:
                         [-x[1], x[0], 0]])
 
     @staticmethod
-    def plot_normalized_thrust(u):
+    def plot_normalized_thrust(x, u):
+        """
+        Plots normalized thrust in the RTN frame
+
+        Args:
+            x: 7 x K state vector
+            u: 3 x K thrust vector
+        """
+        u_rtn = np.zeros(u.shape)
+        for i in range(u.shape[1]):
+            # Compute rotation:
+            r = x[0:3,i]
+            v = x[3:6,i]
+            r_hat = r/np.linalg.norm(r)
+            h = np.cross(r, v)
+            h_hat = h/np.linalg.norm(h)
+            t_hat = np.cross(h_hat, r_hat)
+            R = np.row_stack([r_hat, t_hat, h_hat])
+            # Apply rotation
+            u_rtn[:,i] = R @ u[:,i]
+
         print(f"u shape\n:{u.shape}")
         fig, ax = plt.subplots()
         time = np.linspace(0,1,u.shape[1])
-        ax.plot(time, u[0,:], label='x')
-        ax.plot(time, u[1,:], label='y')
-        ax.plot(time, u[2,:], label='z')
+        ax.plot(time, u_rtn[0,:], label='r')
+        ax.plot(time, u_rtn[1,:], label='t')
+        ax.plot(time, u_rtn[2,:], label='n')
         ax.set_title('Normalized Thrust Commands')
+        plt.legend()
         plt.show()
+
 
     def get_constraint_terms(self):
         """
@@ -260,7 +282,8 @@ class Optimizer:
         model.cons_terms = cons_terms
 
         # Objective: Minimize Time For Orbit Raising and Circularization
-        def minimize_time(model):
+        def objective_func(model):
+            """
             J_obj = 0.0
             for s in model.sIDX: # Min control input
                 J_obj_s = 0.0
@@ -268,8 +291,8 @@ class Optimizer:
                     for i in model.uIDX:
                         J_obj_s += model.u[s, i, k]**2
                 J_obj += J_obj_s
-
-            #J_obj = sum(-1*model.x[s, 6, model.K-1] + model.x[s, 6, 0] for s in model.sIDX) # Min fuel
+            """
+            J_obj = sum(-1*model.x[s, 6, model.K-1] + model.x[s, 6, 0] for s in model.sIDX) # Min fuel
             #J_obj = model.tf # Min time
             J_virtual = options['w_nu']*sum(model.t[s,i,k] for k in model.kIDX for i in model.xIDX for s in model.sIDX)
 
@@ -313,7 +336,7 @@ class Optimizer:
             return model.x[s, 6, model.K-1] >= options['min_mass']
 
         # Set cost function
-        model.cost = pyo.Objective(rule=minimize_time, sense=pyo.minimize)
+        model.cost = pyo.Objective(rule=objective_func, sense=pyo.minimize)
         # Initialize States
         model.init_states = pyo.Constraint(model.sIDX, model.xIDX, rule=initial_state_rule)
         # Initialize Inputs
