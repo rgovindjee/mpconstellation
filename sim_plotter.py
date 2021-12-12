@@ -50,16 +50,16 @@ def plot_orbit_3D(trajectories, references = [], use_mayavi = True, show_quiver=
         sphere = tvtk.TexturedSphereSource(radius=R_EARTH, theta_resolution=180, phi_resolution=180)
         sphere_mapper = tvtk.PolyDataMapper(input_connection=sphere.output_port)
         sphere_actor = tvtk.Actor(mapper=sphere_mapper, texture=texture)
-        fig.scene.add_actor(sphere_actor)
-        #earth = mlab.points3d(0, 0, 0, 2*R_EARTH,scale_factor = 1, resolution = 1024, opacity=0.8)
+        #fig.scene.add_actor(sphere_actor)
+        earth = mlab.points3d(0, 0, 0, 2*R_EARTH,scale_factor = 1, resolution = 1024, opacity=0.8)
         for r in references:
-            mlab.plot3d(r[0,:], r[1,:], r[2,:], tube_radius = 50000, color=(0,1,0))
+            mlab.plot3d(r[0,:], r[1,:], r[2,:], tube_radius = 2500, color=(0,1,0))
         # Plot trajectories
         for t in trajectories:
             if show_quiver and t.shape[0] == 7:
                 idx = np.linspace(0, t.shape[1]-1, 40, dtype=int)
-                mlab.quiver3d(t[0,idx], t[1,idx], t[2,idx], t[3,idx], t[4,idx], t[5,idx],mode='cone', scale_factor=100, color=(0.5,0,0))
-            mlab.plot3d(t[0,:], t[1,:], t[2,:], tube_radius=50000, color=(1,0,0))
+                mlab.quiver3d(t[0,idx], t[1,idx], t[2,idx], t[3,idx], t[4,idx], t[5,idx],mode='cone', scale_factor=10, color=(0.5,0,0))
+            mlab.plot3d(t[0,:], t[1,:], t[2,:], tube_radius=2500, color=(1,0,0))
         mlab.orientation_axes()
         mlab.show()
     else:

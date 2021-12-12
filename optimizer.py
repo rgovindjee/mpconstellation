@@ -44,13 +44,14 @@ class Optimizer:
                         [-x[1], x[0], 0]])
 
     @staticmethod
-    def plot_normalized_thrust(x, u):
+    def plot_thrust(x, u, scale):
         """
-        Plots normalized thrust in the RTN frame
+        Plots thrust in the RTN frame
 
         Args:
             x: 7 x K state vector
             u: 3 x K thrust vector
+            scale: SatelliteScale object to dimensionalize thrust
         """
         u_rtn = np.zeros(u.shape)
         for i in range(u.shape[1]):
@@ -64,14 +65,15 @@ class Optimizer:
             R = np.row_stack([r_hat, t_hat, h_hat])
             # Apply rotation
             u_rtn[:,i] = R @ u[:,i]
-
+        u_rtn = scale.redim_thrust(u_rtn)
         print(f"u shape\n:{u.shape}")
         fig, ax = plt.subplots()
         time = np.linspace(0,1,u.shape[1])
         ax.plot(time, u_rtn[0,:], label='r')
         ax.plot(time, u_rtn[1,:], label='t')
         ax.plot(time, u_rtn[2,:], label='n')
-        ax.set_title('Normalized Thrust Commands')
+        ax.set_title('Thrust Commands')
+        plt.ylabel('Thrust [N]')
         plt.legend()
         plt.show()
 
@@ -168,17 +170,17 @@ class Optimizer:
         Args:
             options: dictionary of options, may be the empty dict
         """
-        default = { 'min_mass':0.1,
+        default = { 'min_mass':0.05,
                     'u_lim':[0, 5],
                     'r_lim':[0.99, 5],
                     'r_des':1,
                     'eps_r': 0.01,
-                    'eps_vr': 0.00001,
-                    'eps_vn': 0.00001,
-                    'eps_vt': 0.00001,
+                    'eps_vr': 0.0001,
+                    'eps_vn': 0.0001,
+                    'eps_vt': 0.0001,
                     'tf_max':5,
-                    'w_nu':100000,
-                    'w_tr':0.0002}
+                    'w_nu':300,
+                    'w_tr':2}
         merged = {**default, **options}
         return merged
 
@@ -201,6 +203,13 @@ class Optimizer:
         """
         u = np.asarray([[pyo.value(self.model.u[s, i, k]) for k in self.model.kIDX] for i in self.model.uIDX])
         return u
+
+    def get_solved_nu(self, s):
+        """
+        Returns a virtual controls for satellite s: 7 x k
+        """
+        nu = np.asarray([[pyo.value(self.model.nu[s, i, k]) for k in self.model.kIDX] for i in self.model.xIDX])
+        return nu
 
     def solve_OPT(self, input_options={}):
         """
@@ -292,8 +301,8 @@ class Optimizer:
                         J_obj_s += model.u[s, i, k]**2
                 J_obj += J_obj_s
             """
-            J_obj = sum(-1*model.x[s, 6, model.K-1] + model.x[s, 6, 0] for s in model.sIDX) # Min fuel
-            #J_obj = model.tf # Min time
+            #J_obj = sum(-1*model.x[s, 6, model.K-1] + model.x[s, 6, 0] for s in model.sIDX) # Min fuel
+            J_obj = model.tf # Min time
             J_virtual = options['w_nu']*sum(model.t[s,i,k] for k in model.kIDX for i in model.xIDX for s in model.sIDX)
 
             J_trust = 0
@@ -329,8 +338,8 @@ class Optimizer:
         def initial_state_rule(model, s, i):
             return model.x[s, i, 0] == self.x_bar[s][i,0]
 
-        def initial_thrust_rule(model, s, i):
-            return model.u[s, i, 0] == self.u_bar[s][i,0]
+        #def initial_thrust_rule(model, s, i):
+        #    return model.u[s, i, 0] == self.u_bar[s][i,0]
 
         def final_mass_rule(model, s):
             return model.x[s, 6, model.K-1] >= options['min_mass']
@@ -340,7 +349,7 @@ class Optimizer:
         # Initialize States
         model.init_states = pyo.Constraint(model.sIDX, model.xIDX, rule=initial_state_rule)
         # Initialize Inputs
-        model.init_inputs = pyo.Constraint(model.sIDX, model.uIDX, rule=initial_thrust_rule)
+        #model.init_inputs = pyo.Constraint(model.sIDX, model.uIDX, rule=initial_thrust_rule)
         # Linearized Dynamics Constraints
         model.dynamics = pyo.Constraint(model.sIDX, model.xIDX, model.kIDX, rule=dynamics_const_rule)
         # Final mass above minimum constraint
