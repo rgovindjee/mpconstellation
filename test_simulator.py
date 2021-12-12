@@ -51,6 +51,28 @@ class TestSimulator(unittest.TestCase):
         # Test saving to CSV
         sim.save_to_csv()
 
+    def test_run_segment(self):
+        print("Testing multi-segment sim run with one satellite")
+        r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
+        v0 = np.array([4.6921, 4.9848, -3.2752]) * 1000 # m/s
+        m0 = 12200  # kg
+        sat = Satellite(r0, v0, m0)
+        sats = [sat]
+        res = 20
+        # Create satellite scale object
+        scale = SatelliteScale(sat=sat)
+        sim = Simulator(sats=sats, scale=scale, base_res=res)  # Use default controller
+        print("Testing first orbit")
+        sim.run_segment(tf=1)  # Run for 1 orbit
+        print("Testing second orbit")
+        sim.run_segment(tf=1)  # Run for 1 orbit
+        print("Testing third and fourth orbits")
+        sim.run_segment(tf=2)  # Run for 2 orbits
+        print(f"Expected time shape: ({4*res},)")
+        print(f"Got: {sim.sim_time[sat.id].shape}")
+
+        # Expect: a 3D view of orbits for all sats
+        plot_orbit_3D([scale.redim_state(sim.sim_data[sats[i].id]) for i in range(len(sats))])
 
     def test_constant_thrust_controller(self):
         r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
@@ -66,7 +88,7 @@ class TestSimulator(unittest.TestCase):
         plot_orbit_3D([scale.redim_state(sim.sim_data[sat.id])])
         # Test saving to CSV
         sim.save_to_csv()
-        
+
 
     def test_tangential_thrust_controller(self):
         r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
