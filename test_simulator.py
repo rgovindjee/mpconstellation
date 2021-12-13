@@ -6,8 +6,11 @@ from satellite import Satellite
 from satellite_scale import SatelliteScale
 from control import *
 import numpy as np
+import logging
 import random
-
+# TODO: get rid of annoying warnings
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 class TestSimulator(unittest.TestCase):
 
@@ -73,6 +76,45 @@ class TestSimulator(unittest.TestCase):
         # Expect: a 3D view of orbits for all sats
         #plot_orbit_3D([scale.redim_state(sim.sim_data[sats[i].id]) for i in range(len(sats))])
 
+    def test_mpc(self):
+        print("Testing MPC controller with one satellite")
+        r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
+        v0 = np.array([4.6921, 4.9848, -3.2752]) * 1000 # m/s
+        m0 = 12200  # kg
+        sat = Satellite(r0, v0, m0)
+        sats = [sat]
+        res = 100
+        tf = 2
+        num_segments = 1
+        tf_interval = tf / num_segments
+        # Create the controller
+        c = OptimalController(sats=sats, base_res=50, tf_horizon=tf, tf_interval=tf_interval)
+        scale = SatelliteScale(sat=sat)
+        sim = Simulator(sats=sats, controller=c, scale=scale, base_res=res, verbose=True)
+        sim.run_segments(tf=tf, num_segments=num_segments)
+        # Calculate circular speed and verify with actual tangential speed
+        const = scale.get_normalized_constants()
+        x_opt = c.opt_trajectory
+        alt_final = np.linalg.norm(x_opt[0:3,-1])
+        print(f"Expected final altitide: 1.5; Actual: {alt_final}")
+        Vc_final = np.sqrt(const.MU/alt_final)
+        # Get tangential, normal, radial vectors:
+        r_f = x_opt[0:3,-1]
+        r_hat_f = r_f/np.linalg.norm(r_f)
+        v_f = x_opt[3:6,-1]
+        v_hat_f = v_f/np.linalg.norm(v_f)
+        h = np.cross(r_f, v_f)
+        h_hat = h/np.linalg.norm(h)
+        t_hat = np.cross(h_hat, r_hat_f)
+        Vr = np.dot(v_f, r_hat_f)
+        Vt = np.dot(v_f, t_hat)
+        Vn = np.dot(v_f, h_hat)
+        print(f"Expected circular speed (Vt):\n{Vc_final}\nActual Velocity:\nVr:{Vr} Vt:{Vt} Vn:{Vn}\n")
+
+        # Expect: a 3D view of orbits for all sats
+        plot_orbit_3D(trajectories=[scale.redim_state(sim.sim_data[sats[i].id]) for i in range(len(sats))],
+                      references=[scale.redim_state(c.opt_trajectory)])
+
     def test_run_segments(self):
         print("Testing multi-segment wrapper function with two satellites")
         r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
@@ -98,16 +140,15 @@ class TestSimulator(unittest.TestCase):
         v0 = np.array([4.6921, 4.9848, -3.2752]) * 1000 # m/s
         m0 = 12200  # kg
         sat = Satellite(r0, v0, m0)
-        scale = SatelliteScale(sat = sat)
+        scale = SatelliteScale(sat=sat)
         # Create constant thrust controller
         c = ConstantThrustController(thrust=np.array([0., 0., 0.1]))
-        sim = Simulator(sats=[sat], controller=c, scale = scale)
+        sim = Simulator(sats=[sat], controller=c, scale=scale)
         sim.run(tf=15)  # Run for 15 orbits
         # Expect: a 3D view of the orbit
         plot_orbit_3D([scale.redim_state(sim.sim_data[sat.id])])
         # Test saving to CSV
         sim.save_to_csv()
-
 
     def test_tangential_thrust_controller(self):
         r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m

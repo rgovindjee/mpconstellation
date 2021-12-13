@@ -1,6 +1,5 @@
 import numpy as np
 from scipy import integrate, interpolate
-from simulator import Simulator
 import logging
 from functools import partial
 import multiprocessing as mp
@@ -84,7 +83,8 @@ def get_matrices(options,funcs, tf, tau, x, k):
 
 
 class Discretizer():
-    def __init__(self, const, rho_func=Simulator.get_atmo_density, drho_func=None, include_drag=False, include_J2=False, use_scipy_ZOH = False):
+    # TODO(rgg): removed dependency on Simulator.get_atmo_density to solve recursion issues, fix?
+    def __init__(self, const, rho_func=None, drho_func=None, include_drag=False, include_J2=False, use_scipy_ZOH = False):
         """
         Args:
             const: Constants object, with variables MU, R_E, J2, S, G0, ISP, CD

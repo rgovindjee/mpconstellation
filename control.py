@@ -1,4 +1,9 @@
 import numpy as np
+import simulator
+from satellite_scale import SatelliteScale
+from linearize_discretize import Discretizer
+from optimizer import Optimizer
+from sim_plotter import *
 
 class Controller:
     """
@@ -92,6 +97,7 @@ class SequenceController(Controller):
         """
         super().__init__(sats)
         # Calculate the normalized time tau where the simulation inputs end, if applicable
+        # (tau in simulation time)
         self.end_tau = tf_u / tf_sim
         self.u = u
 
@@ -113,26 +119,70 @@ class SequenceController(Controller):
         return u
 
 class OptimalController(Controller):
-    def __init__(self, sats=[], objective=None, tf_horizon=1):
+    def __init__(self, sats=[], objective=None, base_res=100, tf_horizon=1, tf_interval=1):
         """
         Arguments:
             sats: list of Satellite objects
             thrust: 3-element array of thrust in x, y, z direction
             objective: desired final arrangement of satellites?
             tf_horizon: horizon over which to optimize, in tf
+            tf_interval: horizon over which the control inputs will be used, in tf
         """
         super().__init__(sats)
-        self.u = np.zeros(3, 1)
+        self.u = np.zeros((3, 1))
         self.horizon = tf_horizon
+        self.interval = tf_interval
+        self.base_res = base_res  # Used for optimization and reference trajectory generation
+        self.sat = self.sats[0]
+        # TODO(rgg) figure out how this works with multiple satellites, multiple segment runs
+        self.scale = SatelliteScale(sat=self.sat)
+        self.r_des = 1.5 # Final desired radius
 
     def update(self):
         """
         Uses the current state of the satellites to calculate a sequence of control inputs over the horizon
         """
-        pass
+        # TODO(rgg): loop over satellites, SCP iterations
+        # Generate reference trajectory
+        T_tan_mag = 0.5  # Tangential thrust magnitude
+        const = self.scale.get_normalized_constants()
+        c = ConstantTangentialThrustController([self.sat], T_tan_mag)
+        sim = simulator.Simulator(sats=[self.sat], controller=c, scale=self.scale,
+                        base_res=self.base_res, include_drag=False, include_J2=False)
+        sim.run(tf=self.horizon)
+        # Create discretizer object with default arguments (no drag, no J2)
+        d = Discretizer(const, use_scipy_ZOH=False, include_drag=False, include_J2=False)
+        # Set up inputs
+        x = sim.sim_data[self.sat.id] # Guess trajectory from simulation
+        K = x.shape[1] #K = int(base_res*tf)
+        u_bar = Discretizer.extract_uk(x, sim.sim_time[self.sat.id], c) # Guess inputs
+        nu_bar = np.zeros((7, K))
+        f = simulator.Simulator.satellite_dynamics
+        # Set up optimizer and run
+        opt_options = { 'r_des':self.r_des,
+                        'eps_r': 0.000001,
+                        'eps_vr': 0.00000000001,
+                        'eps_vt': 0.00000000001,
+                      }
+        opt = Optimizer([x], [u_bar], [nu_bar], self.horizon, d, f, self.scale, verbose=False)
+        opt.solve_OPT(input_options=opt_options)
+        opt.model.vt_max.display()
+        opt.model.vt_min.display()
+        # Extract outputs
+        tf_u = opt.get_solved_tf(0)
+        u_opt = opt.get_solved_u(0)
+        # Get 0th satellite as there is only one
+        #TODO(rgg): update for multiple satellites
+        self.opt_trajectory = opt.get_solved_trajectory(0)
+        #plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
+        #                                 references=[self.scale.redim_state(x)])
+        # Generate sequence controller from control outputs.
+        # Controller works for simulations that end at the end of the horizon.
+        self.sequence_controller=SequenceController(u=u_opt, tf_u=tf_u, tf_sim=self.interval)
 
-    def generate_ref_trajectory(self):
-        pass
+        # Update horzion; THIS DEPENDS ON update() GETTING CALLED ONLY ONCE PER SIM SEGMENT
+        if self.horizon - self.interval > 0.1:
+            self.horizon -= self.interval
 
     def get_u_func(self):
-        pass
+        return self.sequence_controller.get_u_func()
