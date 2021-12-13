@@ -162,9 +162,9 @@ class OptimalController(Controller):
         opt_options = { 'r_des':self.r_des,
                         'eps_r': 0.000001,
                         'eps_vr': 0.00000000001,
-                        'eps_vt': 0.00000000001,
+                        'eps_vt': 0.01,
                       }
-        opt = Optimizer([x], [u_bar], [nu_bar], self.horizon, d, f, self.scale, verbose=False)
+        opt = Optimizer([x], [u_bar], [nu_bar], self.horizon, d, f, self.scale, verbose=True)
         opt.solve_OPT(input_options=opt_options)
         opt.model.vt_max.display()
         opt.model.vt_min.display()
