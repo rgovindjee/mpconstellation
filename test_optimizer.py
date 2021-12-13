@@ -72,6 +72,10 @@ class TestOptimizer(unittest.TestCase):
         sim = Simulator(sats=[self.sat], controller=c_opt, scale=self.scale, base_res=base_res, include_drag = False, include_J2 = False)
         sim.run(tf=tf_sim)
         x_forward = sim.sim_data[self.sat.id] # Guess trajectory from simulation
+
+        radius = np.linalg.norm(x_forward[0:3,:], axis=0)
+        plot2D(radius)
+
         plot_orbit_3D(trajectories=[opt_trajectory],
                       references=[self.scale.redim_state(x_forward)],
                       use_mayavi=True)

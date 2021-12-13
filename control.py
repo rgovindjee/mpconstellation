@@ -161,7 +161,7 @@ class OptimalController(Controller):
         # Set up optimizer and run
         opt_options = { 'r_des':self.r_des,
                         'eps_r': 0.000001,
-                        'eps_vr': 0.00000000001,
+                        'eps_vr': 0.0000000000000001,
                         'eps_vt': 0.01,
                       }
         opt = Optimizer([x], [u_bar], [nu_bar], self.horizon, d, f, self.scale, verbose=True)

@@ -109,7 +109,29 @@ class TestSimulator(unittest.TestCase):
         Vr = np.dot(v_f, r_hat_f)
         Vt = np.dot(v_f, t_hat)
         Vn = np.dot(v_f, h_hat)
+
         print(f"Expected circular speed (Vt):\n{Vc_final}\nActual Velocity:\nVr:{Vr} Vt:{Vt} Vn:{Vn}\n")
+        
+        # Propogate, check for circularity
+        sim2 = Simulator(sats=[sat], scale=scale, base_res=res, verbose=False)
+        sim2.run(tf=5)
+        x_sim_ff = sim2.sim_data[sat.id]
+        radius = np.linalg.norm(x_sim_ff[0:3,:], axis=0)
+        plot2D(radius)
+
+        # Propogate a "control" satellite
+        r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
+        r_base = np.linalg.norm(r0)
+
+        Vc_final_redim = Vc_final * scale._v0
+        sat2 = Satellite(position=np.array([alt_final*r_base, 0, 0]), velocity=np.array([0, Vc_final_redim, 0]), mass=sat.mass)
+        sim3 = Simulator(sats=[sat2], scale=scale, base_res=res, verbose=False)
+        sim3.run(tf=5)
+        x_sim_ff = sim3.sim_data[sat2.id]
+        radius = np.linalg.norm(x_sim_ff[0:3,:], axis=0)
+        plot2D(radius)
+
+
 
         # Expect: a 3D view of orbits for all sats
         plot_orbit_3D(trajectories=[scale.redim_state(sim.sim_data[sats[i].id]) for i in range(len(sats))],
