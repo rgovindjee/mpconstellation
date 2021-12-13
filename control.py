@@ -178,6 +178,7 @@ class OptimalController(Controller):
         tf_u = self.horizon
 
         for i in range(self.SCPn_iterations):
+            print("Running SCPn!")
             K = x.shape[1] #K = int(base_res*tf)
             # Create discretizer object with default arguments (no drag, no J2)
             d = Discretizer(const, use_scipy_ZOH=False, include_drag=False, include_J2=False)

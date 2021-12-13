@@ -184,8 +184,8 @@ class Optimizer:
                     'eps_vn': 0.00001,
                     'eps_vt': 0.00001,
                     'tf_max':5,
-                    'w_nu':100000,
-                    'w_tr':0.0002}
+                    'w_nu':1000,
+                    'w_tr':0.002}
         merged = {**default, **options}
         return merged
 
@@ -572,9 +572,9 @@ class Optimizer:
             return -(vt_act - model.vt_des*norm_t) - model.eps_vt*norm_t <= 0.0
         """
 
-        model.vt_max = pyo.Constraint(model.sIDX, rule=max_tan_vel_rule)
-        model.vt_min = pyo.Constraint(model.sIDX, rule=min_tan_vel_rule)
-        #model.vt_exact = pyo.Constraint(model.sIDX, rule = tan_vel_exact)
+        #model.vt_max = pyo.Constraint(model.sIDX, rule=max_tan_vel_rule)
+        #model.vt_min = pyo.Constraint(model.sIDX, rule=min_tan_vel_rule)
+        model.vt_exact = pyo.Constraint(model.sIDX, rule = tan_vel_exact)
         # L1-norm minimization slack variable constraints
         def pos_t_rule(model, s, i, k):
             return model.nu[s, i, k] <= model.t[s, i, k]
