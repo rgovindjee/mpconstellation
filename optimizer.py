@@ -397,10 +397,24 @@ class Optimizer:
                         + sum(model.cons_terms['DrVr_DvVr'][s][i] * model.x[s,i,model.K-1] for i in range(6))
                         - model.cons_terms['DrVr_DvVr_bar'][s])
                     <= model.eps_vr)
-        # TODO: Investigate
-        model.vr_max = pyo.Constraint(model.sIDX, rule=max_radial_vel_rule)
-        model.vr_min = pyo.Constraint(model.sIDX, rule=min_radial_vel_rule)
 
+        def radial_vel_exact(model, s):
+            # Get position
+            r1 = model.x[s, 0, model.K-1]
+            r2 = model.x[s, 1, model.K-1]
+            r3 = model.x[s, 2, model.K-1]
+            # Get velocity
+            v1 = model.x[s, 3, model.K-1]
+            v2 = model.x[s, 4, model.K-1]
+            v3 = model.x[s, 5, model.K-1]
+            # Calculate radial velocity
+            vr_act = v1*r1 + v2*r2 + v3*r3
+            return vr_act == 0.0
+
+        # TODO: Investigate
+        #model.vr_max = pyo.Constraint(model.sIDX, rule=max_radial_vel_rule)
+        #model.vr_min = pyo.Constraint(model.sIDX, rule=min_radial_vel_rule)
+        model.vr_exact = pyo.Constraint(model.sIDX, rule=radial_vel_exact)
         # Normal Velocity Constraints
         def max_normal_vel_rule(model, s):
             return (model.cons_terms['Vn'][s]
@@ -414,8 +428,27 @@ class Optimizer:
                         - model.cons_terms['DrVn_DvVn_bar'][s])
                     <= model.eps_vn)
 
+        def normal_vel_exact(model, s):
+            # Get position
+            r1 = model.x[s, 0, model.K-1]
+            r2 = model.x[s, 1, model.K-1]
+            r3 = model.x[s, 2, model.K-1]
+            # Get velocity
+            v1 = model.x[s, 3, model.K-1]
+            v2 = model.x[s, 4, model.K-1]
+            v3 = model.x[s, 5, model.K-1]
+            # Calculate an expression for the h (normal) vector (h = r x v)
+            h1 = (r2*v3) - (r3*v2)
+            h2 = (r3*v1) - (r1*v3)
+            h3 = (r1*v2) - (r2*v1)
+            # Calculate tangent velocity
+            vh_act = v1*h1 + v2*h2 + v3*h3
+
+            return vh_act == 0.0
+
         model.vn_max = pyo.Constraint(model.sIDX, rule=max_normal_vel_rule)
         model.vn_min = pyo.Constraint(model.sIDX, rule=min_normal_vel_rule)
+        #model.vn_exact = pyo.Constraint(model.sIDX, rule=normal_vel_exact) - this breaks optimization
 
         # Tangential Velocity Constraints
         def max_tan_vel_rule(model, s):
@@ -549,7 +582,7 @@ class Optimizer:
         # Solve model
         model.dual = pyo.Suffix(direction=pyo.Suffix.EXPORT)
         solver = pyo.SolverFactory('ipopt')
-        solver.options['tol'] = 1E-10
+        #solver.options['tol'] = 1E-10
         # solver.options['max_iter'] = 1000
         results = solver.solve(model, tee=self.verbose, keepfiles=True)
 

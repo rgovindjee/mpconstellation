@@ -95,14 +95,16 @@ class TestSimulator(unittest.TestCase):
         # Calculate circular speed and verify with actual tangential speed
         const = scale.get_normalized_constants()
         x_opt = c.opt_trajectory
-        alt_final = np.linalg.norm(x_opt[0:3,-1])
-        print(f"Expected final altitide: 1.5; Actual: {alt_final}")
-        Vc_final = np.sqrt(const.MU/alt_final)
+        x_act = sim.sim_data[sat.id]
+        alt_final_c = np.linalg.norm(x_opt[0:3,-1])
+        alt_final_act = np.linalg.norm(x_act[0:3,-1])
+        print(f"Expected final altitide: 1.5; Controller: {alt_final_c}; Actual: {alt_final_act}")
+        Vc_final_c = np.sqrt(const.MU/alt_final_c)
+        Vc_final_act = np.sqrt(const.MU/alt_final_act)
         # Get tangential, normal, radial vectors:
         r_f = x_opt[0:3,-1]
         r_hat_f = r_f/np.linalg.norm(r_f)
         v_f = x_opt[3:6,-1]
-        v_hat_f = v_f/np.linalg.norm(v_f)
         h = np.cross(r_f, v_f)
         h_hat = h/np.linalg.norm(h)
         t_hat = np.cross(h_hat, r_hat_f)
@@ -110,28 +112,34 @@ class TestSimulator(unittest.TestCase):
         Vt = np.dot(v_f, t_hat)
         Vn = np.dot(v_f, h_hat)
 
-        print(f"Expected circular speed (Vt):\n{Vc_final}\nActual Velocity:\nVr:{Vr} Vt:{Vt} Vn:{Vn}\n")
+        print(f"Expected controller circular speed (Vt):\n{Vc_final_c}\n Controller actual velocity:\nVr:{Vr} Vt:{Vt} Vn:{Vn}\n")
         
+        # Get tangential, normal, radial vectors:
+        r_f_act = x_act[0:3,-1]
+        r_hat_f_act = r_f/np.linalg.norm(r_f_act)
+        v_f_act = x_act[3:6,-1]
+        h_act= np.cross(r_f_act, v_f_act)
+        h_hat_act = h/np.linalg.norm(h_act)
+        t_hat_act = np.cross(h_hat_act, r_hat_f_act)
+        Vr_act = np.dot(v_f_act, r_hat_f_act)
+        Vt_act = np.dot(v_f_act, t_hat_act)
+        Vn_act = np.dot(v_f_act, h_hat_act)
+        print(f"Expected actual circular speed (Vt):\n{Vc_final_act}\n Actual velocity:\nVr:{Vr_act} Vt:{Vt_act} Vn:{Vn_act}\n")
+
         # Propogate, check for circularity
         sim2 = Simulator(sats=[sat], scale=scale, base_res=res, verbose=False)
         sim2.run(tf=5)
         x_sim_ff = sim2.sim_data[sat.id]
         radius = np.linalg.norm(x_sim_ff[0:3,:], axis=0)
-        plot2D(radius)
+        plot2D(radius, title='Propogated satellite 1')
 
         # Propogate a "control" satellite
-        r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
-        r_base = np.linalg.norm(r0)
-
-        Vc_final_redim = Vc_final * scale._v0
-        sat2 = Satellite(position=np.array([alt_final*r_base, 0, 0]), velocity=np.array([0, Vc_final_redim, 0]), mass=sat.mass)
+        sat2 = Satellite(position=np.array([alt_final_c*scale._r0, 0, 0]), velocity=np.array([0, Vt*scale._v0, 0]), mass=sat.mass)
         sim3 = Simulator(sats=[sat2], scale=scale, base_res=res, verbose=False)
         sim3.run(tf=5)
         x_sim_ff = sim3.sim_data[sat2.id]
         radius = np.linalg.norm(x_sim_ff[0:3,:], axis=0)
-        plot2D(radius)
-
-
+        plot2D(radius, title='Propogated satellite 2 (benchmark)')
 
         # Expect: a 3D view of orbits for all sats
         plot_orbit_3D(trajectories=[scale.redim_state(sim.sim_data[sats[i].id]) for i in range(len(sats))],
