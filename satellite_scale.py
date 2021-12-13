@@ -6,7 +6,7 @@ class SatelliteScale:
     A SatelliteScale object contains methods to normalize and redimensionalize
     states and thrusts with a defined set of scaling factors.
     """
-    def __init__(self, x = None, sat = None):
+    def __init__(self, x=None, sat=None):
         """Initializes a SatelliteScale object.
 
         Initalizes a SatelliteScale object by scaling factors determined from

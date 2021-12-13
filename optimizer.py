@@ -267,6 +267,7 @@ class Optimizer:
         model.eps_vr = options['eps_vr']
         model.eps_vn = options['eps_vn']
         model.eps_vt = options['eps_vt']
+        model.vt_des = np.sqrt(self.const.MU/options['r_des'])
 
         # For minimum time problems
         #model.tf = 2
@@ -436,6 +437,13 @@ class Optimizer:
                     + model.cons_terms['DrVc_rbar'][s]
                     - model.eps_vt
                     <= 0.0)
+
+        # Exact tangent velocity constraints (NON-CONVEX!)
+        def min_tan_vel_exact(model, s):
+            # Get position
+            rf = model.x[s, 0:3, model.K-1]
+            # Calculate tangent velocity
+            return (vt_act - model.vt_des) <= model.eps_vt
 
         model.vt_max = pyo.Constraint(model.sIDX, rule=max_tan_vel_rule)
         model.vt_min = pyo.Constraint(model.sIDX, rule=min_tan_vel_rule)
