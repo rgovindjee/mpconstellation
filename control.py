@@ -166,8 +166,9 @@ class OptimalController(Controller):
                       }
         opt = Optimizer([x], [u_bar], [nu_bar], self.horizon, d, f, self.scale, verbose=True)
         opt.solve_OPT(input_options=opt_options)
-        opt.model.vt_max.display()
-        opt.model.vt_min.display()
+        #opt.model.vt_max.display()
+        #opt.model.vt_min.display()
+        opt.model.vt_exact.display()
         # Extract outputs
         tf_u = opt.get_solved_tf(0)
         u_opt = opt.get_solved_u(0)

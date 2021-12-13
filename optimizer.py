@@ -439,6 +439,33 @@ class Optimizer:
                     <= 0.0)
 
         # Exact tangent velocity constraints (NON-CONVEX!)
+        def tan_vel_exact(model, s):
+            # Get position
+            r1 = model.x[s, 0, model.K-1]
+            r2 = model.x[s, 1, model.K-1]
+            r3 = model.x[s, 2, model.K-1]
+            # Get velocity
+            v1 = model.x[s, 3, model.K-1]
+            v2 = model.x[s, 4, model.K-1]
+            v3 = model.x[s, 5, model.K-1]
+            # Calculate an expression for the h (normal) vector (h = r x v)
+            h1 = (r2*v3) - (r3*v2)
+            h2 = (r3*v1) - (r1*v3)
+            h3 = (r1*v2) - (r2*v1)
+            # Calculate an expression for t (tangential) vector (t = h x r)
+            t1 = (h2*r3) - (h3*r2)
+            t2 = (h3*r1) - (h1*r3)
+            t3 = (h1*r2) - (h2*r1)
+            # Calculate an expression for t_hat (t_hat = t/||t||)
+            norm_t2 = t1**2 + t2**2 + t3**2
+            t_hat1 = t1
+            t_hat2 = t2
+            t_hat3 = t3
+            # Calculate tangent velocity
+            vt_act = v1*t_hat1 + v2*t_hat2 + v3*t_hat3
+
+            return vt_act**2 == (model.vt_des**2) * norm_t2
+        """
         def min_tan_vel_exact(model, s):
             # Get position
             r1 = model.x[s, 0, model.K-1]
@@ -464,8 +491,9 @@ class Optimizer:
             # Calculate tangent velocity
             vt_act = v1*t_hat1 + v2*t_hat2 + v3*t_hat3
 
-            return (vt_act - model.vt_des) <= model.eps_vt
-
+            return (vt_act - model.vt_des*norm_t) - model.eps_vt*norm_t <= 0.0
+        """
+        """
         def max_tan_vel_exact(model, s):
             # Get position
             r1 = model.x[s, 0, model.K-1]
@@ -491,11 +519,12 @@ class Optimizer:
             # Calculate tangent velocity
             vt_act = v1*t_hat1 + v2*t_hat2 + v3*t_hat3
 
-            return -(vt_act - model.vt_des) <= model.eps_vt
+            return -(vt_act - model.vt_des*norm_t) - model.eps_vt*norm_t <= 0.0
+        """
 
-        model.vt_max = pyo.Constraint(model.sIDX, rule=max_tan_vel_exact)
-        model.vt_min = pyo.Constraint(model.sIDX, rule=min_tan_vel_exact)
-
+        #model.vt_max = pyo.Constraint(model.sIDX, rule=max_tan_vel_exact)
+        #model.vt_min = pyo.Constraint(model.sIDX, rule=min_tan_vel_exact)
+        model.vt_exact = pyo.Constraint(model.sIDX, rule = tan_vel_exact)
         # L1-norm minimization slack variable constraints
         def pos_t_rule(model, s, i, k):
             return model.nu[s, i, k] <= model.t[s, i, k]
@@ -521,7 +550,7 @@ class Optimizer:
         model.dual = pyo.Suffix(direction=pyo.Suffix.EXPORT)
         solver = pyo.SolverFactory('ipopt')
         # solver.options['max_iter'] = 1000
-        results = solver.solve(model, tee=self.verbose)
+        results = solver.solve(model, tee=self.verbose, keepfiles=True)
 
         #xOpt = np.asarray([[model.x[i,t]() for i in model.xIDX] for t in model.tIDX]).T
         #uOpt = np.asarray([[model.u[j,t]() for j in model.uIDX] for t in model.tIDX]).T

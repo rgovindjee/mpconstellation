@@ -85,7 +85,7 @@ class TestSimulator(unittest.TestCase):
         sats = [sat]
         res = 100
         tf = 2
-        num_segments = 1
+        num_segments = 2
         tf_interval = tf / num_segments
         # Create the controller
         c = OptimalController(sats=sats, base_res=50, tf_horizon=tf, tf_interval=tf_interval)
