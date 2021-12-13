@@ -15,6 +15,14 @@ try:
 except:
     _mayavi_available = False
 
+
+
+def plot2D(x):
+    fig, ax = plt.subplots()
+    ax.plot(x)
+    plt.show()
+
+
 # TODO: also plot on a useful projection, not just a top-down view
 def plot_orbit_2D(trajectories):
     """

@@ -549,6 +549,7 @@ class Optimizer:
         # Solve model
         model.dual = pyo.Suffix(direction=pyo.Suffix.EXPORT)
         solver = pyo.SolverFactory('ipopt')
+        solver.options['tol'] = 1E-10
         # solver.options['max_iter'] = 1000
         results = solver.solve(model, tee=self.verbose, keepfiles=True)
 
