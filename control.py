@@ -144,7 +144,8 @@ class SequenceController(Controller):
         return u
 
 class OptimalController(Controller):
-    def __init__(self, sats=[], objective=None, base_res=100, tf_horizon=1, tf_interval=1):
+    def __init__(self, sats=[], objective=None, base_res=100, tf_horizon=1,
+                 tf_interval=1, plot_inter=True, opt_verbose=True):
         """
         Arguments:
             sats: list of Satellite objects
@@ -152,6 +153,7 @@ class OptimalController(Controller):
             objective: desired final arrangement of satellites?
             tf_horizon: horizon over which to optimize, in tf
             tf_interval: horizon over which the control inputs will be used, in tf
+            plot_inter: if True, plots the intermediate optimizer results and nonlinear runs
         """
         super().__init__(sats)
         self.u = np.zeros((3, 1))
@@ -163,6 +165,8 @@ class OptimalController(Controller):
         self.scale = SatelliteScale(sat=self.sat)
         self.r_des = 1.5 # Final desired radius
         self.SCPn_iterations = 2
+        self.plot_intermediate = plot_inter
+        self.opt_verbose = opt_verbose
 
     def update(self):
         """
@@ -192,7 +196,7 @@ class OptimalController(Controller):
                             'eps_vt': 0.01,
                             'tf_max': self.horizon
                           }
-            opt = Optimizer([x], [u_bar], [nu_bar], tf_u, d, f, self.scale, verbose=True)
+            opt = Optimizer([x], [u_bar], [nu_bar], tf_u, d, f, self.scale, verbose=self.opt_verbose)
             opt.solve_OPT(input_options=opt_options)
             #opt.model.vt_max.display()
             #opt.model.vt_min.display()
@@ -217,11 +221,13 @@ class OptimalController(Controller):
             # SequenceController needs a different timebase to be used over the entire horizon
             c=SequenceController(u=u_opt, tf_u=tf_u, tf_sim=tf_u)
             ref_x = x
-            plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
+            if self.plot_intermediate:
+                plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
                                              references=[self.scale.redim_state(ref_x)],
                                              title=f"Reference and optimizer, iteration {i}")
             x, t = self.run_nonlinear(c=c, tf=tf_u)
-            plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
+            if self.plot_intermediate:
+                plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
                                              references=[self.scale.redim_state(x)],
                                              title=f"Actual nonlinear and optimizer, iteration {i}")
 

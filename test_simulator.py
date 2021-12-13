@@ -88,7 +88,8 @@ class TestSimulator(unittest.TestCase):
         num_segments = 2
         tf_interval = tf / num_segments
         # Create the controller
-        c = OptimalController(sats=sats, base_res=50, tf_horizon=tf, tf_interval=tf_interval)
+        c = OptimalController(  sats=sats, base_res=50, tf_horizon=tf,
+                                tf_interval=tf_interval, plot_inter=False, opt_verbose=False)
         scale = SatelliteScale(sat=sat)
         sim = Simulator(sats=sats, controller=c, scale=scale, base_res=res, verbose=True)
         sim.run_segments(tf=tf, num_segments=num_segments)
@@ -113,7 +114,7 @@ class TestSimulator(unittest.TestCase):
         Vn = np.dot(v_f, h_hat)
 
         print(f"Expected controller circular speed (Vt):\n{Vc_final_c}\nController actual velocity:\nVr:{Vr} Vt:{Vt} Vn:{Vn}\n")
-        
+
         # Get tangential, normal, radial vectors:
         r_f_act = x_act[0:3,-1]
         r_hat_f_act = r_f_act/np.linalg.norm(r_f_act)
