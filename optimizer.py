@@ -441,8 +441,29 @@ class Optimizer:
         # Exact tangent velocity constraints (NON-CONVEX!)
         def min_tan_vel_exact(model, s):
             # Get position
-            rf = model.x[s, 0:3, model.K-1]
+            r1 = model.x[s, 0, model.K-1]
+            r2 = model.x[s, 1, model.K-1]
+            r3 = model.x[s, 2, model.K-1]
+            # Get velocity
+            v1 = model.x[s, 3, model.K-1]
+            v2 = model.x[s, 4, model.K-1]
+            v3 = model.x[s, 5, model.K-1]
+            # Calculate an expression for the h (normal) vector (h = r x v)
+            h1 = (r2*v3) - (r3*v2)
+            h2 = (r3*v1) - (r1*v3)
+            h3 = (r1*v2) - (r2*v1)
+            # Calculate an expression for t (tangential) vector (t = h x r)
+            t1 = (h2*r3) - (h3*r2)
+            t2 = (h3*r1) - (h1*r3)
+            t3 = (h1*r2) - (h2*r1)
+            # Calculate an expression for t_hat (t_hat = t/||t||)
+            norm_t = pyo.sqrt(t1**2 + t2**2 + t3**2)
+            t_hat1 = t1/norm_t
+            t_hat2 = t2/norm_t
+            t_hat3 = t3/norm_t
             # Calculate tangent velocity
+            vt_act = v1*t_hat1 + v2*t_hat2 + v3*t_hat3
+
             return (vt_act - model.vt_des) <= model.eps_vt
 
         model.vt_max = pyo.Constraint(model.sIDX, rule=max_tan_vel_rule)
