@@ -101,6 +101,29 @@ class SequenceController(Controller):
         self.end_tau = tf_u / tf_sim
         self.u = u
 
+    def u_FOH(self, tau):
+        """
+        First order hold interpolation of a signal u
+
+        Args:
+            tau: Current time tau
+            u: n x K matrix of discrete inputs
+
+        Returns:
+            Interpolated u at time tau, u(tau)
+        """
+        if tau == 1:
+            return self.u[:,-1]
+        else:
+            K = self.u.shape[1] # Number of points for discretization
+            dtau = 1/(K-1) # Length of each interval in tau units
+            k = int(tau // dtau) # lower index of interval to interpolate in
+            tau_k = k/(K-1) # left bound of interval
+            tau_kp1 = (k+1)/(K-1) # right bound of interval
+            lambda_kn = (tau_kp1 - tau)/(tau_kp1 - tau_k)
+            lambda_kp = (tau - tau_k)/(tau_kp1 - tau_k)
+            return lambda_kn*self.u[:, k] + lambda_kp*self.u[:, k+1]
+
     def get_u_func(self, sat_id=None):
         """
         Arguments:
@@ -108,11 +131,13 @@ class SequenceController(Controller):
         """
         def u(x, tau):
             if tau <= self.end_tau:
+                t = tau/self.end_tau
+                return self.u_FOH(t)
                 # Calculate nearest u index (3xK)
-                u_len = self.u.shape[1]
-                u_index = int((tau/self.end_tau) * (u_len-1))
-                # TODO(rgg): add linear interpolation
-                return self.u[:, u_index]
+                #u_len = self.u.shape[1]
+                #u_index = int((t) * (u_len-1))
+                ## TODO(rgg): add linear interpolation
+                #return self.u[:, u_index]
             else:
                 zero_thrust = np.array([0., 0., 0.])
                 return zero_thrust

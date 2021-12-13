@@ -17,9 +17,10 @@ except:
 
 
 
-def plot2D(x):
+def plot2D(x, title=''):
     fig, ax = plt.subplots()
     ax.plot(x)
+    plt.title(title)
     plt.show()
 
 
