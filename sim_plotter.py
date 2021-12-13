@@ -40,7 +40,7 @@ def plot_orbit_2D(trajectories):
     plt.gca().set_aspect('equal')
     plt.show()
 
-def plot_orbit_3D(trajectories, references = [], use_mayavi = True, show_quiver=True):
+def plot_orbit_3D(trajectories, references = [], use_mayavi=True, show_quiver=True, title=""):
     """
     Arguments:
         trajectories: N list of 3 x T arrays of x, y, z positions, or 7 x T
@@ -70,6 +70,8 @@ def plot_orbit_3D(trajectories, references = [], use_mayavi = True, show_quiver=
                 mlab.quiver3d(t[0,idx], t[1,idx], t[2,idx], t[3,idx], t[4,idx], t[5,idx],mode='cone', scale_factor=100, color=(0.5,0,0))
             mlab.plot3d(t[0,:], t[1,:], t[2,:], tube_radius=50000, color=(1,0,0))
         mlab.orientation_axes()
+        if title:
+            mlab.title(title)
         mlab.show()
     else:
         ax = plt.axes(projection='3d')
@@ -87,4 +89,6 @@ def plot_orbit_3D(trajectories, references = [], use_mayavi = True, show_quiver=
         for t in trajectories:
             ax.plot3D(t[0, :], t[1, :], t[2, :])
         #x.set_box_aspect(aspect=(np.ptp(xm), np.ptp(ym), np.ptp(zm)))
+        if title:
+            plt.title(title)
         plt.show()

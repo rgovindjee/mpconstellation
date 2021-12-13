@@ -132,12 +132,12 @@ class SequenceController(Controller):
         def u(x, tau):
             if tau <= self.end_tau:
                 t = tau/self.end_tau
-                return self.u_FOH(t)
                 # Calculate nearest u index (3xK)
-                #u_len = self.u.shape[1]
-                #u_index = int((t) * (u_len-1))
-                ## TODO(rgg): add linear interpolation
-                #return self.u[:, u_index]
+                u_len = self.u.shape[1]
+                u_index = int((tau/self.end_tau) * (u_len-1))
+                # TODO(rgg): add linear interpolation
+                return self.u[:, u_index]
+                #return self.u_FOH(t)
             else:
                 zero_thrust = np.array([0., 0., 0.])
                 return zero_thrust
@@ -162,53 +162,79 @@ class OptimalController(Controller):
         # TODO(rgg) figure out how this works with multiple satellites, multiple segment runs
         self.scale = SatelliteScale(sat=self.sat)
         self.r_des = 1.5 # Final desired radius
+        self.SCPn_iterations = 2
 
     def update(self):
         """
         Uses the current state of the satellites to calculate a sequence of control inputs over the horizon
         """
-        # TODO(rgg): loop over satellites, SCP iterations
+        const = self.scale.get_normalized_constants()
+        # TODO(rgg): make this work with N satellites (not that bad?)
+        # TODO(rgg): multiple SCP iterations?
         # Generate reference trajectory
         T_tan_mag = 0.5  # Tangential thrust magnitude
-        const = self.scale.get_normalized_constants()
         c = ConstantTangentialThrustController([self.sat], T_tan_mag)
-        sim = simulator.Simulator(sats=[self.sat], controller=c, scale=self.scale,
-                        base_res=self.base_res, include_drag=False, include_J2=False)
-        sim.run(tf=self.horizon)
-        # Create discretizer object with default arguments (no drag, no J2)
-        d = Discretizer(const, use_scipy_ZOH=False, include_drag=False, include_J2=False)
-        # Set up inputs
-        x = sim.sim_data[self.sat.id] # Guess trajectory from simulation
-        K = x.shape[1] #K = int(base_res*tf)
-        u_bar = Discretizer.extract_uk(x, sim.sim_time[self.sat.id], c) # Guess inputs
-        nu_bar = np.zeros((7, K))
-        f = simulator.Simulator.satellite_dynamics
-        # Set up optimizer and run
-        opt_options = { 'r_des':self.r_des,
-                        'eps_r': 0.000001,
-                        'eps_vr': 0.0000000000000001,
-                        'eps_vt': 0.01,
-                      }
-        opt = Optimizer([x], [u_bar], [nu_bar], self.horizon, d, f, self.scale, verbose=True)
-        opt.solve_OPT(input_options=opt_options)
-        #opt.model.vt_max.display()
-        #opt.model.vt_min.display()
-        opt.model.vt_exact.display()
-        # Extract outputs
-        tf_u = opt.get_solved_tf(0)
-        u_opt = opt.get_solved_u(0)
-        # Get 0th satellite as there is only one
-        #TODO(rgg): update for multiple satellites
-        self.opt_trajectory = opt.get_solved_trajectory(0)
-        #plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
-        #                                 references=[self.scale.redim_state(x)])
-        # Generate sequence controller from control outputs.
-        # Controller works for simulations that end at the end of the horizon.
-        self.sequence_controller=SequenceController(u=u_opt, tf_u=tf_u, tf_sim=self.interval)
+        x, t = self.run_nonlinear(c, self.horizon)
+        tf_u = self.horizon
+
+        for i in range(self.SCPn_iterations):
+            K = x.shape[1] #K = int(base_res*tf)
+            # Create discretizer object with default arguments (no drag, no J2)
+            d = Discretizer(const, use_scipy_ZOH=False, include_drag=False, include_J2=False)
+            u_bar = Discretizer.extract_uk(x, t, c) # Guess inputs
+            nu_bar = np.zeros((7, K))
+            f = simulator.Simulator.satellite_dynamics
+            # Set up optimizer and run
+            opt_options = { 'r_des': self.r_des,
+                            'eps_r': 0.000001,
+                            'eps_vr': 0.0000000000000001,
+                            'eps_vt': 0.01,
+                            'tf_max': self.horizon
+                          }
+            opt = Optimizer([x], [u_bar], [nu_bar], tf_u, d, f, self.scale, verbose=True)
+            opt.solve_OPT(input_options=opt_options)
+            #opt.model.vt_max.display()
+            #opt.model.vt_min.display()
+            #opt.model.vt_exact.display()
+            # Extract outputs
+            tf_u = opt.get_solved_tf(0)
+            u_opt = opt.get_solved_u(0)
+            nu_opt = opt.get_solved_nu(0)
+            nu_sum = sum(sum(abs(nu_opt)))
+            print(f"tf for optimizer: {tf_u}")
+            print(f"Total virtual control effort: {nu_sum}")
+
+            # Get 0th satellite as there is only one
+            #TODO(rgg): update for multiple satellites
+            self.opt_trajectory = opt.get_solved_trajectory(0)
+            print(f"Final mass from optimization: {self.opt_trajectory[6, -1]}")
+            # Generate sequence controller from control outputs.
+            # Controller works for simulations that end at the end of the horizon.
+            self.sequence_controller=SequenceController(u=u_opt, tf_u=tf_u, tf_sim=self.interval)
+
+            # Run nonlinear simulation with optimizer control outputs to generate a new reference trajectory
+            # SequenceController needs a different timebase to be used over the entire horizon
+            c=SequenceController(u=u_opt, tf_u=tf_u, tf_sim=tf_u)
+            ref_x = x
+            plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
+                                             references=[self.scale.redim_state(ref_x)],
+                                             title=f"Reference and optimizer, iteration {i}")
+            x, t = self.run_nonlinear(c=c, tf=tf_u)
+            plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
+                                             references=[self.scale.redim_state(x)],
+                                             title=f"Actual nonlinear and optimizer, iteration {i}")
 
         # Update horzion; THIS DEPENDS ON update() GETTING CALLED ONLY ONCE PER SIM SEGMENT
         if self.horizon - self.interval > 0.1:
             self.horizon -= self.interval
+
+    def run_nonlinear(self, c, tf):
+        s = simulator.Simulator(sats=[self.sat], controller=c, scale=self.scale,
+                            base_res=self.base_res, include_drag=False, include_J2=False)
+        s.run(tf=tf)
+        x = s.sim_data[self.sat.id] # Guess trajectory from simulation
+        t = s.sim_time[self.sat.id]
+        return x, t
 
     def get_u_func(self):
         return self.sequence_controller.get_u_func()

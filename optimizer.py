@@ -128,9 +128,15 @@ class Optimizer:
             # Distance constraint terms
             r_bar = self.x_bar[i][0:3,:-1]
             output['rbar_hat'].append(r_bar/np.linalg.norm(r_bar, axis=0))
+
             # Thrust constraint terms
             u_bar = self.u_bar[i]
-            output['ubar_hat'].append(u_bar/np.linalg.norm(u_bar, axis=0))
+            u_norm = np.linalg.norm(u_bar, axis=0)
+            # Preallocate zeros, only populate where division is possible
+            ubar_hat = np.zeros(u_bar.shape)
+            nonzero_idx = u_norm <= np.finfo(float).eps
+            ubar_hat[:, nonzero_idx] = u_bar[:, nonzero_idx]/u_norm[nonzero_idx]
+            output['ubar_hat'].append(ubar_hat)
 
 
             # Constraints that apply for the final point K
@@ -202,6 +208,13 @@ class Optimizer:
         """
         u = np.asarray([[pyo.value(self.model.u[s, i, k]) for k in self.model.kIDX] for i in self.model.uIDX])
         return u
+
+    def get_solved_nu(self, s):
+        """
+        Returns a set of virtual control inputs nu for satellite s: 7 x K
+        """
+        nu = np.asarray([[pyo.value(self.model.nu[s, i, k]) for k in self.model.kIDX] for i in self.model.xIDX])
+        return nu
 
     def solve_OPT(self, input_options={}):
         """
@@ -294,8 +307,8 @@ class Optimizer:
                         J_obj_s += model.u[s, i, k]**2
                 J_obj += J_obj_s
             """
-            J_obj = sum(-1*model.x[s, 6, model.K-1] + model.x[s, 6, 0] for s in model.sIDX) # Min fuel
-            #J_obj = model.tf # Min time
+            #J_obj = sum(-1*model.x[s, 6, model.K-1] + model.x[s, 6, 0] for s in model.sIDX) # Min fuel
+            J_obj = model.tf # Min time
             J_virtual = options['w_nu']*sum(model.t[s,i,k] for k in model.kIDX for i in model.xIDX for s in model.sIDX)
 
             J_trust = 0
@@ -355,9 +368,13 @@ class Optimizer:
                 return pyo.Constraint.Skip
             else:
                 thrusts = [model.cons_terms['ubar_hat'][s][i][k] * model.u[s,i,k] for i in model.uIDX]
+                # TODO(rgg): fix this for actual min thrust bounds
+                if sum(thrusts) == 0:
+                    return pyo.Constraint.Feasible
                 return (sum(thrusts) >= options['u_lim'][0])
 
-        model.thrust_min = pyo.Constraint(model.sIDX, model.kIDX, rule=min_thrust_rule)
+        # TODO(rgg): re-enable min thrust (broken due to divide by zero)
+        #model.thrust_min = pyo.Constraint(model.sIDX, model.kIDX, rule=min_thrust_rule)
 
         model.thrust_max = pyo.Constraint(model.sIDX, model.kIDX, rule=lambda model, s,
                                         k: model.u[s,0,k]**2 + model.u[s,1,k]**2 + model.u[s,2,k]**2 <= options['u_lim'][1]**2
@@ -412,9 +429,9 @@ class Optimizer:
             return vr_act == 0.0
 
         # TODO: Investigate
-        #model.vr_max = pyo.Constraint(model.sIDX, rule=max_radial_vel_rule)
-        #model.vr_min = pyo.Constraint(model.sIDX, rule=min_radial_vel_rule)
-        model.vr_exact = pyo.Constraint(model.sIDX, rule=radial_vel_exact)
+        model.vr_max = pyo.Constraint(model.sIDX, rule=max_radial_vel_rule)
+        model.vr_min = pyo.Constraint(model.sIDX, rule=min_radial_vel_rule)
+        #model.vr_exact = pyo.Constraint(model.sIDX, rule=radial_vel_exact)
         # Normal Velocity Constraints
         def max_normal_vel_rule(model, s):
             return (model.cons_terms['Vn'][s]
@@ -555,9 +572,9 @@ class Optimizer:
             return -(vt_act - model.vt_des*norm_t) - model.eps_vt*norm_t <= 0.0
         """
 
-        #model.vt_max = pyo.Constraint(model.sIDX, rule=max_tan_vel_exact)
-        #model.vt_min = pyo.Constraint(model.sIDX, rule=min_tan_vel_exact)
-        model.vt_exact = pyo.Constraint(model.sIDX, rule = tan_vel_exact)
+        model.vt_max = pyo.Constraint(model.sIDX, rule=max_tan_vel_rule)
+        model.vt_min = pyo.Constraint(model.sIDX, rule=min_tan_vel_rule)
+        #model.vt_exact = pyo.Constraint(model.sIDX, rule = tan_vel_exact)
         # L1-norm minimization slack variable constraints
         def pos_t_rule(model, s, i, k):
             return model.nu[s, i, k] <= model.t[s, i, k]
@@ -568,7 +585,6 @@ class Optimizer:
         model.t_neg = pyo.Constraint(model.sIDX, model.xIDX, model.kIDX, rule = neg_t_rule)
 
         # tf needs to be positive but upper bound can be changed
-        # TODO: bring back tf as decision variable
         model.tf_limits = pyo.Constraint(expr=(0, model.tf, options['tf_max']))
 
         # Bounds for the slack variable used in the final distance constraints

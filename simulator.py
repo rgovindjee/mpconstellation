@@ -130,6 +130,10 @@ class Simulator:
         r = y[0:3]
         v = y[3:6]
         m = y[6]
+        if m <= 0.1:
+            print(f"WARNING: low mass {m}")
+        if m <= 0:
+            raise Exception(f"ERROR: INVALID SATELLITE MASS: {m}")
         # Define helper variables
         r_z = r[2]
         r_norm = np.linalg.norm(r)
