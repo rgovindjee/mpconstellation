@@ -3,7 +3,6 @@ from pyomo.core.base.expression import ScalarExpression
 import pyomo.environ as pyo
 import numpy as np
 from sim_plotter import *
-from simulator import Simulator
 from satellite import Satellite
 from satellite_scale import SatelliteScale
 from linearize_discretize import Discretizer
@@ -11,7 +10,7 @@ import matplotlib.pyplot as plt
 
 
 class Optimizer:
-    def __init__(self, x_bar, u_bar, nu_bar, tf, d, f, scale):
+    def __init__(self, x_bar, u_bar, nu_bar, tf, d, f, scale, verbose=True):
         """
             Arguments:
             x_bar: A list of N elements (N satellites). Each element is a numpy array of shape
@@ -24,6 +23,7 @@ class Optimizer:
             d: Discretizer object
             f: Satellite dynamics function/method
             scale: A SatelliteScale object
+            verbose: True prints out optimizer iterations
         """
 
         self.x_bar = x_bar
@@ -36,6 +36,7 @@ class Optimizer:
         self.const = scale.get_normalized_constants()
         self._N = len(x_bar)
         self._K = x_bar[0].shape[1]
+        self.verbose = verbose
 
     @staticmethod
     def skew(x):
@@ -394,7 +395,7 @@ class Optimizer:
             return (-1*(model.cons_terms['Vr'][s]
                         + sum(model.cons_terms['DrVr_DvVr'][s][i] * model.x[s,i,model.K-1] for i in range(6))
                         - model.cons_terms['DrVr_DvVr_bar'][s])
-                    >= -1*model.eps_vr)
+                    <= model.eps_vr)
         # TODO: Investigate
         model.vr_max = pyo.Constraint(model.sIDX, rule=max_radial_vel_rule)
         model.vr_min = pyo.Constraint(model.sIDX, rule=min_radial_vel_rule)
@@ -410,7 +411,7 @@ class Optimizer:
             return (-1*(model.cons_terms['Vn'][s]
                         + sum(model.cons_terms['DrVn_DvVn'][s][i] * model.x[s,i,model.K-1] for i in range(6))
                         - model.cons_terms['DrVn_DvVn_bar'][s])
-                    >= -1*model.eps_vn)
+                    <= model.eps_vn)
 
         model.vn_max = pyo.Constraint(model.sIDX, rule=max_normal_vel_rule)
         model.vn_min = pyo.Constraint(model.sIDX, rule=min_normal_vel_rule)
@@ -464,7 +465,7 @@ class Optimizer:
         model.dual = pyo.Suffix(direction=pyo.Suffix.EXPORT)
         solver = pyo.SolverFactory('ipopt')
         # solver.options['max_iter'] = 1000
-        results = solver.solve(model, tee=True)
+        results = solver.solve(model, tee=self.verbose)
 
         #xOpt = np.asarray([[model.x[i,t]() for i in model.xIDX] for t in model.tIDX]).T
         #uOpt = np.asarray([[model.u[j,t]() for j in model.uIDX] for t in model.tIDX]).T

@@ -7,7 +7,8 @@ from satellite import Satellite
 from satellite_scale import SatelliteScale
 
 class Simulator:
-    def __init__(self, sats=[], controller=Controller(), scale=SatelliteScale(), base_res=100, include_drag = True, include_J2 = True):
+    def __init__(self, sats=[], controller=Controller(), scale=SatelliteScale(), base_res=100,
+                 include_drag=True, include_J2=True, verbose=False):
         """
         Args:
             sats: list of Satellite objects to use for simulation
@@ -23,6 +24,7 @@ class Simulator:
         self.include_drag = include_drag
         self.include_J2 = include_J2
         self.scale = scale # Scaling object to dimensionalize, normalize
+        self.verbose = verbose
 
     def run(self, tf=10):
         """Runs a simulation for all satellites.
@@ -85,7 +87,11 @@ class Simulator:
         # TODO(rgg): scale the tfs so satellites orbit for the same time?
         tf_step = tf / float(num_segments)
         for n in range(num_segments):
+            if self.verbose:
+                print(f"Running segment {n+1} of {num_segments}; tf {tf_step*(n+1)} of {tf}")
             self.run_segment(tf=tf_step)
+            #plot_orbit_3D(trajectories=[self.scale.redim_state(self.controller.opt_trajectory)],
+            #                              references=[self.scale.redim_state(self.sim_data[self.sats[0].id])])
 
     @staticmethod
     def get_atmo_density(r, r0):
