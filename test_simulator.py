@@ -88,7 +88,7 @@ class TestSimulator(unittest.TestCase):
         num_segments = 2
         tf_interval = tf / num_segments
         # Create the controller
-        c = OptimalController(  sats=sats, base_res=50, tf_horizon=tf,
+        c = OptimalController(  sats=sats, base_res=30, tf_horizon=tf,
                                 tf_interval=tf_interval, plot_inter=False, opt_verbose=False)
         scale = SatelliteScale(sat=sat)
         sim = Simulator(sats=sats, controller=c, scale=scale, base_res=res, verbose=True)
@@ -99,7 +99,7 @@ class TestSimulator(unittest.TestCase):
         x_act = sim.sim_data[sat.id]
         alt_final_c = np.linalg.norm(x_opt[0:3,-1])
         alt_final_act = np.linalg.norm(x_act[0:3,-1])
-        print(f"Expected final altitude: 1.5; Controller: {alt_final_c}; Actual: {alt_final_act}")
+        print(f"Expected final altitude: 2; Controller: {alt_final_c}; Actual: {alt_final_act}")
         Vc_final_c = np.sqrt(const.MU/alt_final_c)
         Vc_final_act = np.sqrt(const.MU/alt_final_act)
         # Get tangential, normal, radial vectors:
@@ -154,14 +154,20 @@ class TestSimulator(unittest.TestCase):
         sat = Satellite(r0, v0, m0)
         sat2 = Satellite(r0, v0*1.1, m0)
         sats = [sat, sat2]
-        res = 20
+        res = 100
+        c = ConstantTangentialThrustController(sats=sats, tangential_thrust=0.5)
         # Create satellite scale object
         scale = SatelliteScale(sat=sat)
-        sim = Simulator(sats=sats, scale=scale, base_res=res)  # Use default controller
-        tf = 4
-        sim.run_segments(tf=tf, num_segments=8)
+        sim = Simulator(sats=sats, scale=scale, base_res=res, controller=c)
+        tf = 3
+        sim.run_segments(tf=tf, num_segments=4)
         print(f"Expected time shape: ({tf*res},)")
         print(f"Got: {sim.sim_time[sat.id].shape}")
+
+        final_alt = np.linalg.norm(sim.sim_data[sat.id][0:3, -1])
+        final_mass = np.linalg.norm(sim.sim_data[sat.id][6, -1])
+        print(f"Final altitude: {final_alt}")
+        print(f"Final mass: {final_mass}")
 
         # Expect: a 3D view of orbits for all sats
         plot_orbit_3D([scale.redim_state(sim.sim_data[sats[i].id]) for i in range(len(sats))])

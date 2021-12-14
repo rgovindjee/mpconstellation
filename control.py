@@ -132,12 +132,11 @@ class SequenceController(Controller):
         def u(x, tau):
             if tau <= self.end_tau:
                 t = tau/self.end_tau
-                # Calculate nearest u index (3xK)
-                u_len = self.u.shape[1]
-                u_index = int((tau/self.end_tau) * (u_len-1))
-                # TODO(rgg): add linear interpolation
-                return self.u[:, u_index]
-                #return self.u_FOH(t)
+                return self.u_FOH(t)
+                ## Calculate nearest u index (3xK)
+                #u_len = self.u.shape[1]
+                #u_index = int((tau/self.end_tau) * (u_len-1))
+                #return self.u[:, u_index]
             else:
                 zero_thrust = np.array([0., 0., 0.])
                 return zero_thrust
@@ -145,7 +144,7 @@ class SequenceController(Controller):
 
 class OptimalController(Controller):
     def __init__(self, sats=[], objective=None, base_res=100, tf_horizon=1,
-                 tf_interval=1, plot_inter=True, opt_verbose=True):
+                 tf_interval=1, plot_inter=True, opt_verbose=True, r_des=1.5):
         """
         Arguments:
             sats: list of Satellite objects
@@ -163,7 +162,7 @@ class OptimalController(Controller):
         self.sat = self.sats[0]
         # TODO(rgg) figure out how this works with multiple satellites, multiple segment runs
         self.scale = SatelliteScale(sat=self.sat)
-        self.r_des = 1.5 # Final desired radius
+        self.r_des = r_des # Final desired radius
         self.SCPn_iterations = 2
         self.plot_intermediate = plot_inter
         self.opt_verbose = opt_verbose
