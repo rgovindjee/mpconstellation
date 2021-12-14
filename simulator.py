@@ -88,7 +88,7 @@ class Simulator:
         tf_step = tf / float(num_segments)
         for n in range(num_segments):
             if self.verbose:
-                print(f"Running segment {n+1} of {num_segments}; tf {tf_step*(n+1)} of {tf}")
+                print(f"\nRunning segment {n+1} of {num_segments}; tf {tf_step*(n+1)} of {tf}")
             self.run_segment(tf=tf_step)
             #plot_orbit_3D(trajectories=[self.scale.redim_state(self.controller.opt_trajectory)],
             #                              references=[self.scale.redim_state(self.sim_data[self.sats[0].id])])
