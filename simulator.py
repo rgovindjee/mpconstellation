@@ -91,10 +91,10 @@ class Simulator:
             if self.verbose:
                 print(f"\nRunning segment {n+1} of {num_segments}; tf {tf_step*(n+1)} of {tf}")
             self.run_segment(tf=tf_step, seg_num = n)
-            np.savetxt(f"sim_seg{n}_opt_traj.csv", self.scale.redim_state(self.controller.opt_trajectory).T, delimiter=",")
-            np.savetxt(f"sim_seg{n}_act_traj.csv", self.scale.redim_state(self.sim_data[self.sats[0].id]).T, delimiter=",")
-            plot_orbit_3D(trajectories=[self.scale.redim_state(self.controller.opt_trajectory)],
-                                          references=[self.scale.redim_state(self.sim_data[self.sats[0].id])])
+            #np.savetxt(f"sim_seg{n}_opt_traj.csv", self.scale.redim_state(self.controller.opt_trajectory).T, delimiter=",")
+            #np.savetxt(f"sim_seg{n}_act_traj.csv", self.scale.redim_state(self.sim_data[self.sats[0].id]).T, delimiter=",")
+            #plot_orbit_3D(trajectories=[self.scale.redim_state(self.controller.opt_trajectory)],
+            #                              references=[self.scale.redim_state(self.sim_data[self.sats[0].id])])
 
     @staticmethod
     def get_atmo_density(r, r0):

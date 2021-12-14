@@ -163,7 +163,7 @@ class OptimalController(Controller):
         # TODO(rgg) figure out how this works with multiple satellites, multiple segment runs
         self.scale = SatelliteScale(sat=self.sat)
         self.r_des = r_des # Final desired radius
-        self.SCPn_iterations = 2
+        self.SCPn_iterations = 8
         self.plot_intermediate = plot_inter
         self.opt_verbose = opt_verbose
 
@@ -179,67 +179,66 @@ class OptimalController(Controller):
         c = ConstantTangentialThrustController([self.sat], T_tan_mag)
         x, t = self.run_nonlinear(c, self.horizon)
         tf_u = self.horizon
+        d = Discretizer(const, use_scipy_ZOH=False, include_drag=False, include_J2=False)
+        u_bar = Discretizer.extract_uk(x, t, c) # Guess inputs
+        K = x.shape[1]
+        nu_bar = np.zeros((7, K))
 
         for i in range(self.SCPn_iterations):
-            print("Running SCPn!")
+            print(f"Running SCP! Iteration {i}")
             K = x.shape[1] #K = int(base_res*tf)
             # Create discretizer object with default arguments (no drag, no J2)
-            d = Discretizer(const, use_scipy_ZOH=False, include_drag=False, include_J2=False)
-            u_bar = Discretizer.extract_uk(x, t, c) # Guess inputs
-            nu_bar = np.zeros((7, K))
             f = simulator.Simulator.satellite_dynamics
             # Set up optimizer and run
             print(f"Horizon: {self.horizon}")
             opt_options = { 'r_des': self.r_des,
                             'eps_r': 0.000001,
-                            'eps_vr': 0.0000000000000001,
-                            'eps_vt': 0.01,
-                            'tf_max': self.horizon
+                            'eps_vr': 0.00001,
+                            'eps_vt': 0.00001,
+                            'eps_vn': 0.00001,
+                            'tf_max': self.horizon,
+                            'u_lim':[0, 0.5],
+                            'w_tr': 100000,
+                            'w_nu': 1E+2,
                           }
             opt = Optimizer([x], [u_bar], [nu_bar], tf_u, d, f, self.scale, verbose=self.opt_verbose)
             opt.solve_OPT(input_options=opt_options)
-            #opt.model.vt_max.display()
-            #opt.model.vt_min.display()
-            #opt.model.vt_exact.display()
             # Extract outputs
             tf_u = opt.get_solved_tf(0)
-            u_opt = opt.get_solved_u(0)
-            nu_opt = opt.get_solved_nu(0)
-            nu_sum = sum(sum(abs(nu_opt)))
+            u_bar = opt.get_solved_u(0)
+            nu_bar = opt.get_solved_nu(0)
+            nu_sum = sum(sum(abs(nu_bar)))
             print(f"tf for optimizer: {tf_u}")
             print(f"Total virtual control effort: {nu_sum}")
-
-            # Get 0th satellite as there is only one
-            #TODO(rgg): update for multiple satellites
-            self.opt_trajectory = opt.get_solved_trajectory(0)
-            print(f"Final mass from optimization: {self.opt_trajectory[6, -1]}")
+            x = opt.get_solved_trajectory(0)
+            print(f"Final mass from optimization: {x[6, -1]}")
             # Generate sequence controller from control outputs.
             # Controller works for simulations that end at the end of the horizon.
-            self.sequence_controller=SequenceController(u=u_opt, tf_u=tf_u, tf_sim=self.interval)
+            self.sequence_controller=SequenceController(u=u_bar, tf_u=tf_u, tf_sim=self.interval)
 
             # Run nonlinear simulation with optimizer control outputs to generate a new reference trajectory
             # SequenceController needs a different timebase to be used over the entire horizon
-            c=SequenceController(u=u_opt, tf_u=tf_u, tf_sim=tf_u)
-            ref_x = x
-            if self.plot_intermediate:
-                plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
-                                             references=[self.scale.redim_state(ref_x)],
-                                             title=f"Reference and optimizer, iteration {i}")
-            x, t = self.run_nonlinear(c=c, tf=tf_u)
-            if self.plot_intermediate:
-                plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
-                                             references=[self.scale.redim_state(x)],
-                                             title=f"Actual nonlinear and optimizer, iteration {i}")
-            if self.plot_intermediate:
-                np.savetxt(f"scpn_seg{seg_num}_iter{i}_ref_traj.csv", self.scale.redim_state(ref_x).T,delimiter=",")
-                np.savetxt(f"scpn_seg{seg_num}_iter{i}_uopt.csv", self.scale.redim_thrust(u_opt).T,delimiter=",")
-                np.savetxt(f"scpn_seg{seg_num}_iter{i}_opt_traj.csv", self.scale.redim_state(self.opt_trajectory).T,delimiter=",")
-                np.savetxt(f"scpn_seg{seg_num}_iter{i}_act_traj.csv", self.scale.redim_state(x).T,delimiter=",")
+            #c=SequenceController(u=u_opt, tf_u=tf_u, tf_sim=tf_u)
+            #ref_x = x
+            #if self.plot_intermediate:
+            #    plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
+            #                                 references=[self.scale.redim_state(ref_x)],
+            #                                 title=f"Reference and optimizer, iteration {i}")
+            #x, t = self.run_nonlinear(c=c, tf=tf_u)
+            #if self.plot_intermediate:
+            #    plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
+            #                                 references=[self.scale.redim_state(x)],
+            #                                 title=f"Actual nonlinear and optimizer, iteration {i}")
+            #if self.plot_intermediate:
+            #    np.savetxt(f"scpn_seg{seg_num}_iter{i}_ref_traj.csv", self.scale.redim_state(ref_x).T,delimiter=",")
+            #    np.savetxt(f"scpn_seg{seg_num}_iter{i}_uopt.csv", self.scale.redim_thrust(u_opt).T,delimiter=",")
+            #    np.savetxt(f"scpn_seg{seg_num}_iter{i}_opt_traj.csv", self.scale.redim_state(self.opt_trajectory).T,delimiter=",")
+            #    np.savetxt(f"scpn_seg{seg_num}_iter{i}_act_traj.csv", self.scale.redim_state(x).T,delimiter=",")
 
         # Update horzion; THIS DEPENDS ON update() GETTING CALLED ONLY ONCE PER SIM SEGMENT
-        print(f"Horizon: {self.horizon}\tInterval:{self.interval}")
-        if self.horizon - self.interval > 0.1:
-            self.horizon -= self.interval
+        #print(f"Horizon: {self.horizon}\tInterval:{self.interval}")
+        #if self.horizon - self.interval > 0.1:
+        #    self.horizon -= self.interval
 
     def run_nonlinear(self, c, tf):
         s = simulator.Simulator(sats=[self.sat], controller=c, scale=self.scale,
