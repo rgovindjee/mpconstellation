@@ -66,7 +66,7 @@ Scale = {'km' 'm'  'mile'            'miles'           'nm'              'au'   
 
 % Identify which scale to use
 try
-    myscale = 6378.1363*Scale{2,strcmpi(Scale(1,:),units)};
+    myscale = 6371*Scale{2,strcmpi(Scale(1,:),units)};
 catch %#ok<*CTCH>
     error('Invalid units requested. Please use m, km, ft, mile, miles, nm, or AU')
 end
@@ -105,7 +105,7 @@ if nargout == 0
     props.Cdata = topo2;
 
     % Create the sphere with Earth topography and adjust colormap
-    surface(x,y,z,props,'parent',cax)
+    surface(x,y,z,props,'parent',cax,'HandleVisibility','off')
     colormap(topomap1)
 
 % Replace the calls to surface and colormap with these lines if you do 

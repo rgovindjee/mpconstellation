@@ -600,7 +600,7 @@ class Optimizer:
         solver = pyo.SolverFactory('ipopt')
         #solver.options['tol'] = 1E-10
         # solver.options['max_iter'] = 1000
-        results = solver.solve(model, tee=self.verbose, keepfiles=True)
+        results = solver.solve(model, tee=self.verbose)
 
         #xOpt = np.asarray([[model.x[i,t]() for i in model.xIDX] for t in model.tIDX]).T
         #uOpt = np.asarray([[model.u[j,t]() for j in model.uIDX] for t in model.tIDX]).T

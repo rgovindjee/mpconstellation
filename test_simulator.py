@@ -78,18 +78,20 @@ class TestSimulator(unittest.TestCase):
 
     def test_mpc(self):
         print("Testing MPC controller with one satellite")
-        r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
-        v0 = np.array([4.6921, 4.9848, -3.2752]) * 1000 # m/s
+        #r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m
+        #v0 = np.array([4.6921, 4.9848, -3.2752]) * 1000 # m/s
+        r0 = np.array([6.920659696230498E+03, 0, 0]) * 1000 # m
+        v0 = np.array([0, 7.588871358113800, 0]) * 1000 # m/s
         m0 = 12200  # kg
         sat = Satellite(r0, v0, m0)
         sats = [sat]
         res = 100
         tf = 2
-        num_segments = 2
+        num_segments = 1
         tf_interval = tf / num_segments
         # Create the controller
         c = OptimalController(  sats=sats, base_res=30, tf_horizon=tf,
-                                tf_interval=tf_interval, plot_inter=False, opt_verbose=False)
+                                tf_interval=tf_interval, plot_inter=True, opt_verbose=False)
         scale = SatelliteScale(sat=sat)
         sim = Simulator(sats=sats, controller=c, scale=scale, base_res=res, verbose=True)
         sim.run_segments(tf=tf, num_segments=num_segments)
@@ -128,6 +130,7 @@ class TestSimulator(unittest.TestCase):
         print(f"Expected actual circular speed (Vt):\n{Vc_final_act}\nActual velocity:\nVr:{Vr_act} Vt:{Vt_act} Vn:{Vn_act}\n")
 
         # Propogate, check for circularity
+        print(f"Final satellite mass: {sat.mass/m0}")
         sim2 = Simulator(sats=[sat], scale=scale, base_res=res, verbose=False)
         sim2.run(tf=5)
         x_sim_ff1 = sim2.sim_data[sat.id]
@@ -138,11 +141,14 @@ class TestSimulator(unittest.TestCase):
         sat2 = Satellite(position=np.array([alt_final_c*scale._r0, 0, 0]), velocity=np.array([0, Vt*scale._v0, 0]), mass=sat.mass)
         sim3 = Simulator(sats=[sat2], scale=scale, base_res=res, verbose=False)
         sim3.run(tf=5)
-        x_sim_ff = sim3.sim_data[sat2.id]
-        radius = np.linalg.norm(x_sim_ff[0:3,:], axis=0)
+        x_sim_ff2 = sim3.sim_data[sat2.id]
+        radius = np.linalg.norm(x_sim_ff2[0:3,:], axis=0)
         plot2D(radius, title='Propogated satellite 2 (benchmark)')
 
         # Expect: a 3D view of orbits for all sats
+        np.savetxt("mpc_act_traj.csv", scale.redim_state(x_act).T, delimiter=",")
+        np.savetxt("mpc_con_traj.csv", scale.redim_state(x_opt).T, delimiter=",")
+        np.savetxt("mpc_fwd_traj.csv", scale.redim_state(x_sim_ff1).T, delimiter=",")
         plot_orbit_3D(trajectories=[scale.redim_state(sim.sim_data[sats[i].id]) for i in range(len(sats))] + [scale.redim_state(x_sim_ff1)],
          references=[scale.redim_state(c.opt_trajectory)])
 
@@ -169,8 +175,8 @@ class TestSimulator(unittest.TestCase):
         print(f"Final altitude: {final_alt}")
         print(f"Final mass: {final_mass}")
 
-        # Expect: a 3D view of orbits for all sats
-        plot_orbit_3D([scale.redim_state(sim.sim_data[sats[i].id]) for i in range(len(sats))])
+        ## Expect: a 3D view of orbits for all sats
+        #plot_orbit_3D([scale.redim_state(sim.sim_data[sats[i].id]) for i in range(len(sats))])
 
     def test_constant_thrust_controller(self):
         r0 = np.array([5371.4806, -4133.1393, 1399.9594]) * 1000  # m

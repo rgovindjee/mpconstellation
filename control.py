@@ -167,7 +167,7 @@ class OptimalController(Controller):
         self.plot_intermediate = plot_inter
         self.opt_verbose = opt_verbose
 
-    def update(self):
+    def update(self, seg_num = 0):
         """
         Uses the current state of the satellites to calculate a sequence of control inputs over the horizon
         """
@@ -189,6 +189,7 @@ class OptimalController(Controller):
             nu_bar = np.zeros((7, K))
             f = simulator.Simulator.satellite_dynamics
             # Set up optimizer and run
+            print(f"Horizon: {self.horizon}")
             opt_options = { 'r_des': self.r_des,
                             'eps_r': 0.000001,
                             'eps_vr': 0.0000000000000001,
@@ -229,8 +230,14 @@ class OptimalController(Controller):
                 plot_orbit_3D(trajectories=[self.scale.redim_state(self.opt_trajectory)],
                                              references=[self.scale.redim_state(x)],
                                              title=f"Actual nonlinear and optimizer, iteration {i}")
+            if self.plot_intermediate:
+                np.savetxt(f"scpn_seg{seg_num}_iter{i}_ref_traj.csv", self.scale.redim_state(ref_x).T,delimiter=",")
+                np.savetxt(f"scpn_seg{seg_num}_iter{i}_uopt.csv", self.scale.redim_thrust(u_opt).T,delimiter=",")
+                np.savetxt(f"scpn_seg{seg_num}_iter{i}_opt_traj.csv", self.scale.redim_state(self.opt_trajectory).T,delimiter=",")
+                np.savetxt(f"scpn_seg{seg_num}_iter{i}_act_traj.csv", self.scale.redim_state(x).T,delimiter=",")
 
         # Update horzion; THIS DEPENDS ON update() GETTING CALLED ONLY ONCE PER SIM SEGMENT
+        print(f"Horizon: {self.horizon}\tInterval:{self.interval}")
         if self.horizon - self.interval > 0.1:
             self.horizon -= self.interval
 
